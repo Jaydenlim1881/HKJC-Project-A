@@ -2,6 +2,21 @@
 import re
 import unicodedata
 from datetime import datetime
+import inspect
+
+def log(level, *args, **kwargs):
+    """Simple logging helper with module-level debug control.
+
+    Uses the caller's ``DEBUG_LEVEL`` variable if present (defaults to
+    ``"INFO"``). Levels: ``OFF`` < ``INFO`` < ``DEBUG`` < ``TRACE``.
+    """
+    levels = {"OFF": 0, "INFO": 1, "DEBUG": 2, "TRACE": 3}
+    caller_frame = inspect.currentframe().f_back
+    debug_level = caller_frame.f_globals.get("DEBUG_LEVEL", "INFO")
+    current_level = levels.get(debug_level, 1)
+    msg_level = levels.get(level, 0)
+    if msg_level <= current_level:
+        print(f"[{level}]", *args, **kwargs)
 
 def sanitize_text(text):
     if not text:

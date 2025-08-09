@@ -7,7 +7,7 @@ import time
 import re
 from datetime import datetime
 from utils import (
-    sanitize_text, clean_placing, convert_finish_time,
+    log, sanitize_text, clean_placing, convert_finish_time,
     safe_int, safe_float, parse_weight, parse_lbw,
     get_distance_group, estimate_turn_count, get_draw_group,
     get_jump_type, get_distance_group_from_row, get_season_code
@@ -26,13 +26,6 @@ from selenium.webdriver.chrome.service import Service
 # ===== DEBUGGING CONTROL =====
 DEBUG_LEVEL = "INFO"  # "OFF", "INFO", "DEBUG", "TRACE"
 
-def log(level, *args, **kwargs):
-    levels = {"OFF": 0, "INFO": 1, "DEBUG": 2, "TRACE": 3}
-    current_level = levels.get(DEBUG_LEVEL, 1)  # Defaults to "INFO"
-    msg_level = levels.get(level, 0)  # Defaults to "OFF" if invalid
-    if msg_level <= current_level:
-        print(f"[{level}]", *args, **kwargs)
-
 CHROME_DRIVER_PATH = './chromedriver'
 
 from _horse_dynamic_stats_cleaned import (
@@ -47,6 +40,7 @@ from _horse_dynamic_stats_cleaned import (
     upsert_distance_pref,
     upsert_course_pref,
     upsert_bwr_distance_perf,
+    create_bwr_distance_perf_table,
     ensure_column_exists,
     upsert_horse_jockey_combo,
     create_trainer_combo_table,
@@ -71,29 +65,8 @@ from _horse_dynamic_stats_cleaned import (
 )
 
 # -----------------------------
-# GOING PREF TABLE + UPSERT
+# DYNAMIC STATS UPSERT (LOCAL)
 # -----------------------------
-def create_draw_pref_table():
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS horse_draw_pref (
-            HorseID TEXT,
-            Season TEXT,
-            RaceCourse TEXT,
-            DistanceGroup TEXT,
-            DrawGroup TEXT,
-            Top3Rate REAL,
-            Top3Count INTEGER,
-            TotalRuns INTEGER,
-            Top3TR TEXT,
-            LastUpdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (HorseID, Season, RaceCourse, DistanceGroup, DrawGroup)
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
 def reset_draw_pref_table():
     time.sleep(1)  # <-- short pause before drop
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
@@ -102,26 +75,6 @@ def reset_draw_pref_table():
     conn.commit()
     conn.close()
     log("INFO", "Dropped old horse_draw_pref table")
-
-def create_bwr_distance_perf_table():
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS horse_bwr_distance_perf (
-            HorseID TEXT,
-            Season TEXT,
-            Distance INTEGER,
-            BWRGroup TEXT,
-            Top3Rate REAL,
-            Top3Count INTEGER,
-            TotalRuns INTEGER,
-            Top3TR TEXT,
-            LastUpdate TEXT,
-            PRIMARY KEY (HorseID, Season, Distance, BWRGroup)
-        )
-    ''')
-    conn.commit()
-    conn.close()
 
 def create_going_pref_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
@@ -141,60 +94,6 @@ def create_going_pref_table():
     conn.commit()
     conn.close()
 
-def upsert_going_pref(horse_id, going_pref_dict):
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cursor = conn.cursor()
-    last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS horse_going_pref (
-            HorseID TEXT,
-            Season TEXT,
-            GoingType TEXT,
-            Top3Rate REAL,
-            Top3Count INTEGER,
-            TotalRuns INTEGER,
-            Top3TR TEXT,
-            LastUpdate TEXT,
-            PRIMARY KEY (HorseID, Season, GoingType)
-        );
-    ''')
-
-    # Ensure backward-compatible columns exist
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "Top3Count", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "TotalRuns", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "Top3TR", "TEXT")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "LastUpdate", "TEXT")
-
-    for season, goings in going_pref_dict.items():
-        for going_type, stats in goings.items():
-            last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
-
-            total = stats["total"]
-            top3 = stats["top3"]
-            if total > 0:
-                rate = top3 / total
-                if total < 3:
-                    rate /= 2  # ⚠️ Apply 50% adjustment for small samples
-                top3_rate = round(rate, 4)
-                top3_tr = f"{top3}/{total}"
-
-                cursor.execute('''
-                    INSERT OR REPLACE INTO horse_going_pref (
-                        HorseID, Season, GoingType,
-                        Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    horse_id, season, going_type,
-                    top3_rate, top3, total, top3_tr, last_update
-                ))
-
-    conn.commit()
-    conn.close()
-
-# -----------------------------
-# DYNAMIC STATS UPSERT (LOCAL)
-# -----------------------------
 def upsert_dynamic_stats(
     horse_id,
     recent_form,
