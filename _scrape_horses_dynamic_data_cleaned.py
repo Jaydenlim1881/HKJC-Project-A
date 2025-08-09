@@ -38,6 +38,7 @@ from _horse_dynamic_stats_cleaned import (
     build_course_pref,
     build_bwr_distance_perf,
     upsert_distance_pref,
+    upsert_going_pref,
     upsert_course_pref,
     upsert_bwr_distance_perf,
     create_bwr_distance_perf_table,

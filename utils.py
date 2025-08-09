@@ -89,7 +89,11 @@ def get_distance_group(race_course, course_type, distance):
 
     if race_course == "ST":
         if course_type == "AWT":
+            if distance <= 1000:
+                return "Sprint"
             if distance <= 1200:
+                return "Short"
+            elif distance <= 1400:
                 return "Short"
             elif distance <= 1650:
                 return "Mid"
@@ -156,16 +160,35 @@ def estimate_turn_count(race_course, course_type, distance):
             return 4
     return 0
 
-def get_draw_group(draw_number, field_size):
-    if field_size <= 6:
-        return "Mid"
-    third = field_size // 3
-    if draw_number <= third:
-        return "Low"
-    elif draw_number <= 2 * third:
-        return "Mid"
-    else:
-        return "High"
+def get_draw_group(draw_number, field_size=None):
+    """
+    Map barrier draw to fixed groups (field_size ignored intentionally):
+      Inside   = 1–3
+      InnerMid = 4–6
+      OuterMid = 7–9
+      Wide     = 10–12
+      Outer    = 13+
+    Returns one of: "Inside", "InnerMid", "OuterMid", "Wide", "Outer" or None.
+    """
+    # Accept strings like " 9 " and handle None/"-" etc.
+    if draw_number is None:
+        return None
+    try:
+        d = int(str(draw_number).strip())
+    except (ValueError, TypeError):
+        return None
+
+    if 1 <= d <= 3:
+        return "Inside"
+    if 4 <= d <= 6:
+        return "InnerMid"
+    if 7 <= d <= 9:
+        return "OuterMid"
+    if 10 <= d <= 12:
+        return "Wide"
+    if d >= 13:
+        return "Outer"
+    return None
 
 def get_jump_type(previous_class, current_class):
     try:

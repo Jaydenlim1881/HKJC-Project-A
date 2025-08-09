@@ -31,7 +31,7 @@ DEBUG_LEVEL = "INFO"  # "OFF", "INFO", "DEBUG", "TRACE"
 def get_distance_group_simple(distance: int) -> str:
     if distance < 1000:
         return "Sprint"
-    elif distance < 1400:
+    elif distance <= 1400:
         return "Short"
     elif distance < 1800:
         return "Mid"
@@ -109,6 +109,8 @@ def convert_time_to_seconds(time_str):
     if race_course == "ST":
         if course_type == "AWT":
             if distance <= 1200:
+                return "Short"
+            if distance <= 1400:
                 return "Short"
             elif distance <= 1650:
                 return "Mid"
