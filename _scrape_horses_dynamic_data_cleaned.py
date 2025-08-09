@@ -459,8 +459,8 @@ def extract_dynamic_stats(horse_url):
                     "EarlyPos": early_pos,
                     "MidPos": mid_pos,
                     "FinalPos": final_pos,
-                    "Placing": placing if placing is not None else final_pos,
                     "FinishTime": finish_time,
+                    "Placing": placing if placing is not None else final_pos,
                     "FieldSize": field_size
                 }
 

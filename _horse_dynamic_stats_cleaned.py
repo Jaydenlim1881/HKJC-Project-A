@@ -624,8 +624,8 @@ def upsert_running_position(data_dict):
             HorseID, RaceDate, RaceNo, Season,
             RaceCourse, CourseType,
             DistanceGroup, TurnCount,
-            EarlyPos, MidPos, FinalPos, Placing,
-            FinishTime, FieldSize, LastUpdate
+            EarlyPos, MidPos, FinalPos, FinishTime,
+            Placing, FieldSize, LastUpdate
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data_dict.get("HorseID"),
@@ -639,8 +639,8 @@ def upsert_running_position(data_dict):
         data_dict.get("EarlyPos"),
         data_dict.get("MidPos"),
         data_dict.get("FinalPos"),
-        data_dict.get("Placing"),
         data_dict.get("FinishTime"),
+        data_dict.get("Placing"),
         data_dict.get("FieldSize"),
         last_update
     ))
@@ -950,8 +950,8 @@ def create_running_position_table():
             EarlyPos INTEGER,
             MidPos REAL,
             FinalPos INTEGER,
-            Placing INTEGER,
             FinishTime REAL,
+            Placing INTEGER,
             FieldSize INTEGER,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, RaceDate, RaceNo)
