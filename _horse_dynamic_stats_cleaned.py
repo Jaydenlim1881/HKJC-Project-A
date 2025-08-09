@@ -624,9 +624,9 @@ def upsert_running_position(data_dict):
             HorseID, RaceDate, RaceNo, Season,
             RaceCourse, CourseType,
             DistanceGroup, TurnCount,
-            EarlyPos, MidPos, FinalPos,
+            EarlyPos, MidPos, FinalPos, Placing,
             FinishTime, FieldSize, LastUpdate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data_dict.get("HorseID"),
         data_dict.get("RaceDate"),
@@ -639,6 +639,7 @@ def upsert_running_position(data_dict):
         data_dict.get("EarlyPos"),
         data_dict.get("MidPos"),
         data_dict.get("FinalPos"),
+        data_dict.get("Placing"),
         data_dict.get("FinishTime"),
         data_dict.get("FieldSize"),
         last_update
@@ -949,6 +950,7 @@ def create_running_position_table():
             EarlyPos INTEGER,
             MidPos REAL,
             FinalPos INTEGER,
+            Placing INTEGER,
             FinishTime REAL,
             FieldSize INTEGER,
             LastUpdate TEXT,
@@ -957,6 +959,7 @@ def create_running_position_table():
     """)
     conn.commit()
     conn.close()
+    ensure_column_exists("hkjc_horses_dynamic.db", "horse_running_position", "Placing", "INTEGER")
 
 def upsert_bwr_distance_perf(horse_id, bwr_perf_list):
     conn = sqlite3.connect("hkjc_horses_dynamic.db")

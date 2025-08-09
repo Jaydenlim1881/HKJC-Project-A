@@ -459,6 +459,7 @@ def extract_dynamic_stats(horse_url):
                     "EarlyPos": early_pos,
                     "MidPos": mid_pos,
                     "FinalPos": final_pos,
+                    "Placing": placing if placing is not None else final_pos,
                     "FinishTime": finish_time,
                     "FieldSize": field_size
                 }
@@ -790,7 +791,7 @@ if __name__ == "__main__":
                     log("ERROR", f"Failed to update running_style_pref for {horse_id}: {e}")
 
                 # Jockey-Trainer combo
-                jt_combo_map = defaultdict(lambda: {"top3": 0, "total": 0})
+                jt_combo_map = defaultdict(lambda: {"top3": 0, "total": 0, "last_date": None})
 
                 for row in horse_data["RawRows"]:
                     cols = row.find_all("td")
@@ -822,10 +823,15 @@ if __name__ == "__main__":
                     if placing in [1, 2, 3]:
                         jt_combo_map[key]["top3"] += 1
 
+                    current_last = jt_combo_map[key]["last_date"]
+                    if current_last is None or race_date > current_last:
+                        jt_combo_map[key]["last_date"] = race_date
+
                 for (season, jockey, trainer), result in jt_combo_map.items():
                     top3 = result["top3"]
                     total = result["total"]
-                    rate = round(top3 / total, 3) if total > 0 else 0.0
+                    last_date_str = result["last_date"].strftime("%d/%m/%y") if result["last_date"] else None
+                    last_date = result["last_date"].strftime("%d/%m/%y") if result["last_date"] else None
 
                     upsert_jockey_trainer_combo(
                         horse_id=horse_data["HorseID"],
@@ -834,7 +840,7 @@ if __name__ == "__main__":
                         trainer=trainer,
                         top3_count=top3,
                         total_runs=total,
-                        last_race_date=date_str  # Make sure this is in dd/mm/yy format
+                        last_race_date=last_date_str
                     )
 
                 log("INFO", f"Processed: {horse_id}")
