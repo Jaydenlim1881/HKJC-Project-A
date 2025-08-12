@@ -1625,14 +1625,14 @@ def build_draw_pref(rows):
 
     for row in rows:
         cols = row.find_all("td")
-        if len(cols) < 7:
+        if len(cols) < 8:
             continue
 
         placing = clean_placing(cols[1].get_text())
         date_str = sanitize_text(cols[2].get_text())
         raw_course = sanitize_text(cols[3].get_text())
         distance_str = sanitize_text(cols[4].get_text())
-        draw_str = sanitize_text(cols[6].get_text())
+        draw_str = sanitize_text(cols[7].get_text())
 
         if placing is None or not date_str or not distance_str.isdigit() or not draw_str.isdigit():
             continue
@@ -1804,6 +1804,47 @@ def fetch_class_jump_pref_ordered(horse_id):
     
     return results
 
+def fetch_running_style_pref_ordered(horse_id):
+    """
+    Return horse_running_style_pref rows for a horse with Season sorted newest→oldest.
+    Also applies a sensible ordering for FieldSizeBand and StyleBucket.
+    """
+    conn = sqlite3.connect("hkjc_horses_dynamic.db")
+    cur = conn.cursor()
+
+    # Get current season for proper sorting
+    current_year = datetime.now().year
+    current_season = f"{current_year%100:02d}/{(current_year+1)%100:02d}"
+    
+    cur.execute("""
+        SELECT
+            HorseID, Season, RaceCourse, DistanceGroup, TurnCount,
+            FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
+        FROM horse_running_style_pref
+        WHERE HorseID = ?
+        ORDER BY
+            CAST(SUBSTR(Season, 1, 2) AS INTEGER) DESC,      -- 24/25 before 23/24
+            RaceCourse,
+            DistanceGroup,
+            TurnCount DESC,
+            CASE FieldSizeBand
+                WHEN '13+'  THEN 3
+                WHEN '10–12' THEN 2
+                WHEN '≤9'   THEN 1
+                ELSE 0
+            END DESC,
+            CASE StyleBucket
+                WHEN 'Leader'  THEN 1
+                WHEN 'On-pace' THEN 2
+                WHEN 'Stalker' THEN 3
+                WHEN 'Closer'  THEN 4
+                ELSE 99
+            END
+    """, (horse_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+    
 def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
     """
     Aggregate per-race running positions into style preference rows.
@@ -1831,6 +1872,9 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
     if horse_id:
         sql += " WHERE HorseID = ?"
         params.append(horse_id)
+    
+    # Add ORDER BY to ensure seasons are processed newest to oldest
+    sql += " ORDER BY CAST(SUBSTR(Season, 1, 2) AS INTEGER) DESC, RaceDate DESC"
 
     rows = cur.execute(sql, params).fetchall()
 
@@ -1895,8 +1939,3 @@ if __name__ == "__main__":
     print("       It's designed to be imported, not run directly.")
 
     create_running_position_table()
-
-
-
-
-

@@ -787,6 +787,17 @@ if __name__ == "__main__":
                     upserts, groups = rebuild_running_style_pref(horse_id)
                     if DEBUG_LEVEL in ("DEBUG", "TRACE"):
                         log("DEBUG", f"RunningStylePref updated for {horse_id}: {upserts} rows across {groups} groups")
+                        try:
+                            from _horse_dynamic_stats_cleaned import fetch_running_style_pref_ordered
+                            ordered = fetch_running_style_pref_ordered(horse_id)
+                            # Display seasons in proper order
+                            seasons = sorted(set(row[1] for row in ordered), 
+                                        key=lambda s: int(s[:2]), 
+                                        reverse=True)
+                            log("DEBUG", f"RunningStylePref seasons (newest→oldest): {seasons}")
+                            log("DEBUG", f"Sample style data: {ordered[0] if ordered else 'None'}")    
+                        except Exception as qerr:
+                            log("DEBUG", f"RunningStylePref verify query failed: {qerr}")
                 except Exception as e:
                     log("ERROR", f"Failed to update running_style_pref for {horse_id}: {e}")
 
@@ -857,5 +868,4 @@ if __name__ == "__main__":
 
     log("INFO", f"\nSummary: {success} succeeded, {failure} failed out of {len(horse_ids)}")
     log("INFO", f"Batch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
 
