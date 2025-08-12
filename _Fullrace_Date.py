@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 import logging
 from tenacity import retry, stop_after_attempt
+from utils import get_season_code, get_distance_group
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,11 +20,11 @@ CONFIG = {
     'wait_time': 2,
     'max_attempts': 3,
     'columns': [
-        'RaceDate', 'RaceCourse', 'RaceNo', 'RaceID', 'Distance', 'GoingType', 'Surface', 'CourseType',
+        'RaceDate', 'Season', 'RaceCourse', 'RaceNo', 'RaceID', 'Distance', 'DistanceGroup', 'GoingType', 'Surface', 'CourseType',
         'ClassType', 'Class', 'ClassML', 'ClassGriffin', 'ClassGroup', 'ClassRestricted', 'ClassYear',
         'ClassCategory', 'HorseNumber', 'HorseID', 'HorseName', 'Jockey', 'Trainer',
         'ActualWeight', 'DeclaredHorseWeight', 'Draw', 'LBW', 'RunningPosition', 'FinishTime',
-        'WinOdds', 'RaceGrade'
+        'WinOdds', 'Placing', 'RaceGrade'
     ]
 }
 
@@ -254,15 +255,24 @@ def scrape_race(driver, race_date, course, race_num):
         }
         abbreviated_course_type = course_type_abbreviations.get(Turf_type_value, Turf_type_value)
 
+        race_date = parse_date(soup.find('span', class_='f_fl f_fs13'))
+        race_course = 'ST' if course == 'ST' else 'HV'
+        course_type = abbreviated_course_type
+        distance = parse_distance(soup.find('td', style=re.compile('width')))
+        season = get_season_code(datetime.strptime(race_date, "%Y-%m-%d")) if race_date else None
+        distance_group = get_distance_group(race_course, course_type, distance) if distance is not None else None
+
         metadata = {
-            'RaceDate': parse_date(soup.find('span', class_='f_fl f_fs13')),
-            'RaceCourse': 'ST' if course == 'ST' else 'HV',
+            'RaceDate': race_date,
+            'Season': season,
+            'RaceCourse': race_course,
             'RaceNo': race_num,
             'RaceID': race_id_value,
-            'Distance': parse_distance(soup.find('td', style=re.compile('width'))),
+            'Distance': distance,
+            'DistanceGroup': distance_group,
             'GoingType': abbreviate_going(going_value, Turf_surface_value),  # Updated line
             'Surface': Turf_surface_value,
-            'CourseType': abbreviated_course_type
+            'CourseType': course_type
         }
 
         class_td = soup.find('td', style=re.compile('width'))
@@ -325,7 +335,7 @@ def scrape_race(driver, race_date, course, race_num):
                     **metadata,
                     **class_features,
                     'ClassML': class_features["ClassML"],
-                    'FinishPosition': finish_pos,
+                    'Placing': finish_pos,
                     'HorseNumber': safe_int(horse_num_text),
                     'HorseID': horse_id,
                     'HorseName': clean_text(horse_info.get_text() if horse_info else None),
@@ -387,11 +397,11 @@ def main():
         if all_data:
             df = pd.DataFrame(all_data)
             # Remove rows where finish_pos is empty or missing
-            df = df[df['FinishPosition'].notna() & (df['FinishPosition'].astype(str).str.strip() != "")]
+            df = df[df['Placing'].notna() & (df['Placing'].astype(str).str.strip() != "")]
             for col in CONFIG['columns']:
                 if col not in df.columns:
                     df[col] = None
-            df.loc[df['FinishPosition'] == 1, 'LBW'] = "0.01"
+            df.loc[df['Placing'] == 1, 'LBW'] = "0.01"
             df = df[CONFIG['columns']]
             csv_path = f"{CONFIG['output_dir']}/races_{date_file_str}.csv"
             df.to_csv(csv_path, index=False)
