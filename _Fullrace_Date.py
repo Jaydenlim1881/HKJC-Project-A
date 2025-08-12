@@ -51,11 +51,14 @@ def safe_float(value):
     return float(cleaned) if cleaned else None
 
 def parse_date(raw_date):
-    try:
-        date_str = re.search(r'\d{2}/\d{2}/\d{4}', clean_text(raw_date) or '').group()
-        return datetime.strptime(date_str, '%d/%m/%Y').strftime('%Y-%m-%d')
-    except:
+    s = clean_text(raw_date) or ''
+    m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', s)
+    if not m:
         return None
+    day, month, year = m.groups()
+    fmt_in = '%d/%m/%Y' if len(year) == 4 else '%d/%m/%y'
+    dt = datetime.strptime(f'{day}/{month}/{year}', fmt_in)
+    return dt.strftime('%d/%m/%y')   # always DD/MM/YY
 
 def parse_distance(dist_str):
     try:
@@ -259,7 +262,7 @@ def scrape_race(driver, race_date, course, race_num):
         race_course = 'ST' if course == 'ST' else 'HV'
         course_type = abbreviated_course_type
         distance = parse_distance(soup.find('td', style=re.compile('width')))
-        season = get_season_code(datetime.strptime(race_date, "%Y-%m-%d")) if race_date else None
+        season = get_season_code(datetime.strptime(race_date, "%d/%m/%y")) if race_date else None
         distance_group = get_distance_group(race_course, course_type, distance) if distance is not None else None
 
         metadata = {
@@ -385,12 +388,13 @@ def main():
         for date in [datetime(2025, 5, 4)]:  # Update dates if needed
             date_str = date.strftime('%Y/%m/%d')
             date_file_str = date.strftime('%Y_%m_%d')
+            display_date = date.strftime('%d/%m/%y')  # NEW: for display/logs/DB/CSV
             for course in ['ST', 'HV']:
                 for race_num in range(1, 12):
                     try:
                         if race_data := scrape_race(driver, date_str, course, race_num):
                             all_data.extend(race_data)
-                            logger.info(f"✅ {date.date()} {course} R{race_num}: {len(race_data)} runners")
+                            logger.info(f"✅ {display_date} {course} R{race_num}: {len(race_data)} runners")
                     except Exception as e:
                         logger.error(f"⚠️ Failed {course} R{race_num} after retries: {e}")
                         continue
@@ -402,6 +406,9 @@ def main():
                 if col not in df.columns:
                     df[col] = None
             df.loc[df['Placing'] == 1, 'LBW'] = "0.01"
+            # Ensure RaceDate is DD/MM/YY (TEXT)
+            if 'RaceDate' in df.columns:
+                df['RaceDate'] = df['RaceDate'].apply(parse_date).astype(str)
             df = df[CONFIG['columns']]
             csv_path = f"{CONFIG['output_dir']}/races_{date_file_str}.csv"
             df.to_csv(csv_path, index=False)
