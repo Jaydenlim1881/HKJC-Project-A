@@ -24,7 +24,7 @@ CONFIG = {
         'ClassType', 'Class', 'ClassML', 'ClassGriffin', 'ClassGroup', 'ClassRestricted', 'ClassYear',
         'ClassCategory', 'HorseNumber', 'HorseID', 'HorseName', 'Jockey', 'Trainer',
         'ActualWeight', 'DeclaredHorseWeight', 'Draw', 'LBW', 'RunningPosition', 'FinishTime',
-        'WinOdds', 'Placing', 'RaceGrade'
+        'WinOdds', 'Placing'
     ]
 }
 
@@ -116,7 +116,6 @@ def encode_race_class(raw_class):
             'ClassRestricted': 0,
             'ClassYear': 0,
             'ClassGriffin': 0,
-            'RaceGrade': None
         }
     class_str = (clean_text(raw_class) or '').lower()
     features = {
@@ -125,20 +124,16 @@ def encode_race_class(raw_class):
         'ClassLevel': 0,
         'ClassRestricted': 1 if 'restricted' in class_str else 0,
         'ClassYear': 0,
-        'ClassGriffin': 1 if 'griffin' in class_str else 0,
-        'RaceGrade': None
+        'ClassGriffin': 1 if 'griffin' in class_str else 0
     }
     try:
         if 'group' in class_str:
             features['ClassType'] = 'group'
             if 'one' in class_str: 
-                features['RaceGrade'] = 1
                 features['ClassGroup'] = 1
             elif 'two' in class_str: 
-                features['RaceGrade'] = 2
                 features['ClassGroup'] = 2
             elif 'three' in class_str: 
-                features['RaceGrade'] = 3
                 features['ClassGroup'] = 3
         elif class_num := re.search(r'class (\d+)', class_str):
             features['ClassLevel'] = safe_int(class_num.group(1))
@@ -305,19 +300,19 @@ def scrape_race(driver, race_date, course, race_num):
         # ✅ Finalize both human-readable "Class" and ML-friendly "ClassML"
         if class_features["ClassType"] == "GRP":
             class_features["Class"] = f"G{class_features['ClassLevel']}"
-            class_features["ClassML"] = class_features['ClassLevel']
+            class_features["ClassML"] = class_features['Class']
         elif class_features["ClassType"] == "AGE":
             class_features["Class"] = f"{class_features['ClassLevel']}YO"
-            class_features["ClassML"] = class_features['ClassLevel']
+            class_features["ClassML"] = class_features['Class']
         elif class_features["ClassType"] == "GRF":
-            class_features["Class"] = "GRI"
+            class_features["Class"] = "6"
             class_features["ClassML"] = 6
         elif class_features["ClassType"] == "RST":
             class_features["Class"] = f"{class_features['ClassLevel']}R"
-            class_features["ClassML"] = class_features['ClassLevel']
+            class_features["ClassML"] = class_features['Class']
         else:  # STD
             class_features["Class"] = str(class_features['ClassLevel'])
-            class_features["ClassML"] = class_features['ClassLevel']
+            class_features["ClassML"] = class_features['Class']
 
         results = []
         for row in soup.select('table.f_tac tr'):
@@ -385,7 +380,7 @@ def main():
     driver = initialize()
     all_data = []
     try:
-        for date in [datetime(2025, 5, 4)]:  # Update dates if needed
+        for date in [datetime(2025, 6, 22)]:  # Update dates if needed
             date_str = date.strftime('%Y/%m/%d')
             date_file_str = date.strftime('%Y_%m_%d')
             display_date = date.strftime('%d/%m/%y')  # NEW: for display/logs/DB/CSV

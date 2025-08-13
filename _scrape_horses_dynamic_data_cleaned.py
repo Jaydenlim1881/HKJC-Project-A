@@ -449,7 +449,6 @@ def extract_dynamic_stats(horse_url):
                 # -- Build data dict
                 rp_data = {
                     "HorseID": horse_id,
-                    "RaceDate": race_date_str,
                     "RaceNo": race_no,
                     "Season": season,
                     "RaceCourse": race_course,
@@ -464,6 +463,9 @@ def extract_dynamic_stats(horse_url):
                     "FieldSize": field_size
                 }
 
+                formatted_date = datetime.strptime(race_date_str, "%Y/%m/%d").strftime("%d/%m/%y")
+                rp_data["RaceDate"] = formatted_date
+                
                 upsert_running_position(rp_data)
 
             except Exception as err:
@@ -530,7 +532,7 @@ if __name__ == "__main__":
 
     # 3. Handle draw preferences
     reset_draw_pref_table()  # 🧼 Drop and clean old table
-    create_draw_pref_table()  # ✅ Now recreate with correct PRIMARY KEY
+    create_draw_pref_table()  # ✅ Ensure table exists
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_draw_pref", "RaceCourse", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_draw_pref", "LastUpdate", "TIMESTAMP")
 

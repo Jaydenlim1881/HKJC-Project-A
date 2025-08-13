@@ -535,7 +535,9 @@ def build_hwtr_per_class(rows, horse_id):
                 season_code = f"{date.year%100:02d}/{(date.year+1)%100:02d}"
             else:
                 season_code = f"{(date.year-1)%100:02d}/{date.year%100:02d}"
-            cls = cols[6].text.strip()
+            cls = sanitize_text(cols[6].text).upper()
+            if cls in ("GRIFFIN", "GRF"):
+                cls = "6"
             actual_wt = parse_float(cols[13].text.strip())
             declared_wt = parse_float(cols[16].text.strip())
         except:
@@ -618,6 +620,13 @@ def upsert_running_position(data_dict):
     cursor = conn.cursor()
     
     last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
+
+    race_date = data_dict.get("RaceDate")
+    if race_date:
+        try:
+            race_date = datetime.strptime(race_date, "%d/%m/%y").strftime("%d/%m/%y")
+        except ValueError:
+            race_date = datetime.strptime(race_date, "%Y/%m/%d").strftime("%d/%m/%y")
     
     cursor.execute("""
         INSERT OR REPLACE INTO horse_running_position (
@@ -629,7 +638,7 @@ def upsert_running_position(data_dict):
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data_dict.get("HorseID"),
-        data_dict.get("RaceDate"),
+        race_date,
         data_dict.get("RaceNo"),
         data_dict.get("Season"),
         data_dict.get("RaceCourse"),
@@ -1526,7 +1535,8 @@ def build_class_jump_pref(rows):
       - 'Up'   : current class number < previous class number (e.g., C4 -> C3)
       - 'Down' : current class number > previous class number (e.g., C3 -> C4)
       - 'Same' : same class number
-    Ignores non-numeric classes (G1, G2, G3, Griffin).
+    Ignores group classes (G1, G2, G3).
+    Griffin races are treated as class 6 rather than ignored.
     """
     import re
 
@@ -1543,8 +1553,12 @@ def build_class_jump_pref(rows):
 
     def class_to_int(txt):
         t = sanitize_text(txt).upper()
-        if not t or any(k in t for k in ["G1", "G2", "G3", "GRIFFIN", "GRF"]):
+        if not t:
             return None
+        if any(k in t for k in ["G1", "G2", "G3"]):
+            return None
+        if "GRIFFIN" in t or "GRF" in t:
+            return 6
         m = re.search(r"(\d+)", t)
         return int(m.group(1)) if m else None
 
