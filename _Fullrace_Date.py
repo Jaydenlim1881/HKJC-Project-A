@@ -310,7 +310,7 @@ def scrape_race(driver, race_date, course, race_num):
             class_features["Class"] = f"{class_features['ClassLevel']}YO"
             class_features["ClassML"] = class_features['ClassLevel']
         elif class_features["ClassType"] == "GRF":
-            class_features["Class"] = "GRIFFIN"
+            class_features["Class"] = "GRI"
             class_features["ClassML"] = 6
         elif class_features["ClassType"] == "RST":
             class_features["Class"] = f"{class_features['ClassLevel']}R"
