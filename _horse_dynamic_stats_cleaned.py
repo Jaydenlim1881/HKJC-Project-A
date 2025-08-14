@@ -1165,6 +1165,59 @@ def create_class_jump_pref_table():
     conn.commit()
     conn.close()
 
+def create_horse_rating_table(db_path="hkjc_horses_dynamic.db"):
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    # Create with LastUpdate as the LAST column
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS horse_rating (
+            HorseID TEXT,
+            Season TEXT,
+            AsOfDate TEXT,
+            OfficialRating REAL,
+            RatingStartSeason REAL,
+            RatingStartCareer REAL,
+            LastUpdate TEXT,
+            PRIMARY KEY (HorseID, Season, AsOfDate)
+        );
+    """)
+    # If table existed from an earlier version, ensure LastUpdate exists
+    cur.execute("PRAGMA table_info(horse_rating)")
+    cols = [c[1] for c in cur.fetchall()]
+    if "LastUpdate" not in cols:
+        cur.execute("ALTER TABLE horse_rating ADD COLUMN LastUpdate TEXT")
+    conn.commit()
+    conn.close()
+
+def upsert_horse_rating(
+    horse_id: str,
+    season: str,
+    as_of_date: str,           # 'YYYY-MM-DD'
+    official_rating: float,
+    rating_start_season: float,
+    rating_start_career: float,
+    db_path="hkjc_horses_dynamic.db"
+):
+    import sqlite3
+    from datetime import datetime
+    last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO horse_rating (
+            HorseID, Season, AsOfDate, OfficialRating, RatingStartSeason, RatingStartCareer, LastUpdate
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(HorseID, Season, AsOfDate) DO UPDATE SET
+          OfficialRating      = excluded.OfficialRating,
+          RatingStartSeason   = excluded.RatingStartSeason,
+          RatingStartCareer   = excluded.RatingStartCareer,
+          LastUpdate          = excluded.LastUpdate;
+    """, (horse_id, season, as_of_date, official_rating, rating_start_season, rating_start_career, last_update))
+    conn.commit()
+    conn.close()
+
 def upsert_weight_pref(horse_id, weight_pref_list):
     import sqlite3
     
