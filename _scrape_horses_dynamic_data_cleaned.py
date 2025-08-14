@@ -551,7 +551,7 @@ def extract_dynamic_stats(horse_url):
                     "FieldSize": field_size
                 }
 
-                formatted_date = datetime.strptime(race_date_str, "%Y/%m/%d").strftime("%d/%m/%y")
+                formatted_date = datetime.strptime(race_date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
                 rp_data["RaceDate"] = formatted_date
                 
                 upsert_running_position(rp_data)
@@ -1008,8 +1008,8 @@ if __name__ == "__main__":
                 for (season, jockey, trainer), result in jt_combo_map.items():
                     top3 = result["top3"]
                     total = result["total"]
-                    last_date_str = result["last_date"].strftime("%d/%m/%y") if result["last_date"] else None
-                    last_date = result["last_date"].strftime("%d/%m/%y") if result["last_date"] else None
+                    last_date_str = result["last_date"].strftime("%Y-%m-%d") if result["last_date"] else None
+                    last_date = result["last_date"].strftime("%Y-%m-%d") if result["last_date"] else None
 
                     upsert_jockey_trainer_combo(
                         horse_id=horse_data["HorseID"],

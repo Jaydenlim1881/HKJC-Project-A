@@ -623,10 +623,7 @@ def upsert_running_position(data_dict):
 
     race_date = data_dict.get("RaceDate")
     if race_date:
-        try:
-            race_date = datetime.strptime(race_date, "%d/%m/%y").strftime("%d/%m/%y")
-        except ValueError:
-            race_date = datetime.strptime(race_date, "%Y/%m/%d").strftime("%d/%m/%y")
+        race_date = datetime.strptime(race_date, "%Y-%m-%d").strftime("%Y-%m-%d")
     
     cursor.execute("""
         INSERT OR REPLACE INTO horse_running_position (
@@ -865,7 +862,7 @@ def upsert_horse_jockey_combo(horse_id, rows):
             if (stats["LatestDateObj"] is None or 
                 race_date > stats["LatestDateObj"]):
                 stats["LatestDateObj"] = race_date
-                stats["LastRaceDate"] = date_str  # Store original string format
+                stats["LastRaceDate"] = race_date.strftime("%Y-%m-%d")
 
         except Exception as e:
             log("DEBUG", f"Row processing error: {e}")
@@ -1464,13 +1461,15 @@ def upsert_jockey_trainer_combo(horse_id, season, jockey, trainer, top3_count, t
 
         # Validate date format
         try:
-            validated_date = (datetime.strptime(last_race_date, "%d/%m/%y").strftime("%d/%m/%y") 
-                            if last_race_date 
-                            else datetime.now().strftime("%d/%m/%y"))
+            validated_date = (
+                datetime.strptime(last_race_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+                if last_race_date
+                else datetime.now().strftime("%Y-%m-%d")
+            )
         except ValueError:
-            validated_date = datetime.now().strftime("%d/%m/%y")
+            validated_date = datetime.now().strftime("%Y-%m-%d")
             stats['warnings'] += 1
-            log("WARNING", f"Invalid date format for {horse_id}, using current date") 
+            log("WARNING", f"Invalid date format for {horse_id}, using current date")
 
         # Fixed SQL query - removed ellipsis and added complete column list
         query = """
