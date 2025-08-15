@@ -31,8 +31,8 @@ CONFIG = {
 }
 
 # --- Scrape month/year settings (edit these when needed) ---
-SCRAPE_YEAR = 2025
-SCRAPE_MONTH = 6   # 1=Jan ... 12=Dec
+SCRAPE_YEAR = 2024
+SCRAPE_MONTH = 10   # 1=Jan ... 12=Dec  python3 _Fullrace_Month.py
 
 def initialize():
     os.makedirs(CONFIG['output_dir'], exist_ok=True)
@@ -57,14 +57,45 @@ def safe_float(value):
     return float(cleaned) if cleaned else None
 
 def parse_date(raw_date):
+    # Accept None
+    if raw_date is None:
+        return None
+
     s = clean_text(raw_date) or ''
+
+    # 1) Already ISO (YYYY-MM-DD) -> return as-is
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
+        return s
+
+    # 2) Extract DD/MM/YY or DD/MM/YYYY from anywhere inside the string
     m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', s)
     if not m:
         return None
+
     day, month, year = m.groups()
     fmt_in = '%d/%m/%Y' if len(year) == 4 else '%d/%m/%y'
     dt = datetime.strptime(f'{day}/{month}/{year}', fmt_in)
-    return dt.strftime('%d/%m/%y')   # always DD/MM/YY
+    return dt.strftime('%Y-%m-%d')   # ISO 8601
+
+def extract_race_date(soup):
+    """
+    Tries multiple locations/strategies to find the race date and returns ISO 'YYYY-MM-DD'.
+    """
+    # 1) Original location
+    node = soup.find('span', class_='f_fl f_fs13')
+    iso = parse_date(node)
+    if iso:
+        return iso
+
+    # 2) Sometimes the layout/class changes slightly; try another common class
+    node_alt = soup.find('span', string=re.compile(r'Race Meeting', re.I))
+    iso = parse_date(node_alt)
+    if iso:
+        return iso
+
+    # 3) Fallback: search the whole page text
+    iso = parse_date(soup.get_text(" ", strip=True))
+    return iso
 
 def parse_distance(dist_str):
     try:
@@ -259,11 +290,11 @@ def scrape_race(driver, race_date, course, race_num):
         }
         abbreviated_course_type = course_type_abbreviations.get(Turf_type_value, Turf_type_value)
 
-        race_date = parse_date(soup.find('span', class_='f_fl f_fs13'))
+        race_date = extract_race_date(soup)
         race_course = 'ST' if course == 'ST' else 'HV'
         course_type = abbreviated_course_type
         distance = parse_distance(soup.find('td', style=re.compile('width')))
-        season = get_season_code(datetime.strptime(race_date, "%d/%m/%y")) if race_date else None
+        season = get_season_code(datetime.strptime(race_date, "%Y-%m-%d")) if race_date else None
         distance_group = get_distance_group(race_course, course_type, distance) if distance is not None else None
 
         metadata = {
@@ -419,7 +450,7 @@ def main():
                 df[col] = None
         df.loc[df['Placing'] == 1, 'LBW'] = "0.01"
         if 'RaceDate' in df.columns:
-            df['RaceDate'] = df['RaceDate'].apply(parse_date).astype(str)
+            df['RaceDate'] = df['RaceDate'].apply(lambda v: parse_date(v) or v)
         df = df[CONFIG['columns']]
 
         # Save one big CSV for the month

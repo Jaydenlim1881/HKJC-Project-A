@@ -623,7 +623,15 @@ def upsert_running_position(data_dict):
 
     race_date = data_dict.get("RaceDate")
     if race_date:
-        race_date = datetime.strptime(race_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        # Normalize to ISO format (YYYY-MM-DD) for consistent storage
+        for fmt in ("%Y-%m-%d", "%d/%m/%y", "%Y/%m/%d"):
+            try:
+                race_date = datetime.strptime(race_date, fmt).strftime("%Y-%m-%d")
+                break
+            except ValueError:
+                continue
+        else:
+            race_date = None
     
     cursor.execute("""
         INSERT OR REPLACE INTO horse_running_position (
@@ -829,6 +837,7 @@ def upsert_horse_jockey_combo(horse_id, rows):
         "Top3Count": 0,
         "TotalRuns": 0,
         "LastRaceDate": "",
+        "LastRaceDateDisplay": "",
         "LatestDateObj": None  # Corrected line - no extra parenthesis
     }))
 
@@ -859,10 +868,12 @@ def upsert_horse_jockey_combo(horse_id, rows):
                 stats["Top3Count"] += 1
             
             # Track most recent date
-            if (stats["LatestDateObj"] is None or 
+            if (stats["LatestDateObj"] is None or
                 race_date > stats["LatestDateObj"]):
                 stats["LatestDateObj"] = race_date
+                # Store ISO for DB, keep original for display if needed
                 stats["LastRaceDate"] = race_date.strftime("%Y-%m-%d")
+                stats["LastRaceDateDisplay"] = date_str
 
         except Exception as e:
             log("DEBUG", f"Row processing error: {e}")
@@ -1459,7 +1470,7 @@ def upsert_jockey_trainer_combo(horse_id, season, jockey, trainer, top3_count, t
             stats['warnings'] += 1
             log("WARNING", f"Zero division for {horse_id}")
 
-        # Validate date format
+        # Validate date format (expect ISO)
         try:
             validated_date = (
                 datetime.strptime(last_race_date, "%Y-%m-%d").strftime("%Y-%m-%d")

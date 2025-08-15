@@ -8,7 +8,6 @@ import re
 from datetime import datetime
 from utils import (
     log, sanitize_text, clean_placing, convert_finish_time,
-    safe_int, safe_float, parse_weight, parse_lbw,
     get_distance_group, estimate_turn_count, get_draw_group,
     get_jump_type, get_distance_group_from_row, get_season_code
 )
@@ -97,66 +96,6 @@ def create_going_pref_table():
     conn.commit()
     conn.close()
 
-def create_rating_history_table():
-    """Authoritative rating change-log. One row per (HorseID, AsOfDate ISO)."""
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS horse_rating_history (
-            HorseID        TEXT NOT NULL,
-            AsOfDate       TEXT NOT NULL,    -- ISO 'YYYY-MM-DD'
-            OfficialRating REAL NOT NULL,
-            Source         TEXT,             -- e.g. 'HKJC'
-            Note           TEXT,
-            LastUpdate     TEXT,             -- 'YYYY-MM-DD HH:MM'
-            PRIMARY KEY (HorseID, AsOfDate)
-        );
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_hrh_horse_date
-        ON horse_rating_history(HorseID, AsOfDate);
-    """)
-    conn.commit()
-    conn.close()
-
-def upsert_rating_history(horse_id: str, asof_date_iso: str, official_rating: float,
-                          source: str = "HKJC", note: str = None,
-                          db_path: str = "hkjc_horses_dynamic.db") -> bool:
-    """
-    Inserts a new change row if the rating differs from the last stored value
-    (as of the most recent AsOfDate before/as of the provided date).
-    Returns True if inserted, False if skipped (no change/invalid).
-    """
-    if not horse_id or not asof_date_iso or official_rating is None:
-        return False
-
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-
-    # Check most recent stored rating at/before this date
-    cur.execute("""
-        SELECT OfficialRating, AsOfDate
-        FROM horse_rating_history
-        WHERE HorseID=? AND AsOfDate <= ?
-        ORDER BY AsOfDate DESC
-        LIMIT 1
-    """, (horse_id, asof_date_iso))
-    row = cur.fetchone()
-
-    # Skip if value unchanged
-    if row and row[0] == official_rating:
-        conn.close()
-        return False
-
-    last_update = datetime.now().strftime("%Y-%m-%d %H:%M")
-    cur.execute("""
-        INSERT OR IGNORE INTO horse_rating_history
-        (HorseID, AsOfDate, OfficialRating, Source, Note, LastUpdate)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (horse_id, asof_date_iso, float(official_rating), source, note, last_update))
-    conn.commit()
-    conn.close()
-    return True
 
 def upsert_dynamic_stats(
     horse_id,
@@ -376,31 +315,6 @@ def extract_dynamic_stats(horse_url):
 
             race_dates.append(race_date)
 
-            # --- Rating history (append-only, per change) ---
-            # Safe access to rating column (index 8) if present
-            if len(cols) > 8:
-                rating_text = sanitize_text(cols[8].get_text())
-                official_rating = safe_int(rating_text) if rating_text else None
-            else:
-                official_rating = None
-
-            # AsOfDate uses the race date in ISO for correct ordering
-            asof_date_iso = race_date.strftime("%Y-%m-%d")
-
-            if horse_id and official_rating is not None:
-                try:
-                    upsert_rating_history(
-                        horse_id=horse_id,
-                        asof_date_iso=asof_date_iso,   # ISO 'YYYY-MM-DD'
-                        official_rating=float(official_rating),
-                        source="HKJC",
-                        note=None
-                    )
-                except Exception as e:
-                    if DEBUG_LEVEL in ("DEBUG", "TRACE"):
-                        log("DEBUG", f"Rating history upsert failed for {horse_id} {asof_date_iso}: {e}")
-            # --- end rating history block ---
-
             # Build season code
             if race_date.month >= 9:
                 season_code = f"{race_date.year%100:02d}/{(race_date.year+1)%100:02d}"
@@ -535,6 +449,7 @@ def extract_dynamic_stats(horse_url):
                 field_size = 12  # Replace with real logic later if needed
 
                 # -- Build data dict
+                race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
                 rp_data = {
                     "HorseID": horse_id,
                     "RaceNo": race_no,
@@ -548,11 +463,12 @@ def extract_dynamic_stats(horse_url):
                     "FinalPos": final_pos,
                     "FinishTime": finish_time,
                     "Placing": placing if placing is not None else final_pos,
-                    "FieldSize": field_size
+                    "FieldSize": field_size,
+                    # Store ISO date for downstream sorting/queries
+                    "RaceDate": race_date_obj.strftime("%Y-%m-%d"),
+                    # Separate display string if needed by consumers
+                    "RaceDateDisplay": race_date_obj.strftime("%d/%m/%y"),
                 }
-
-                formatted_date = datetime.strptime(race_date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
-                rp_data["RaceDate"] = formatted_date
                 
                 upsert_running_position(rp_data)
 
@@ -629,7 +545,6 @@ if __name__ == "__main__":
     create_bwr_distance_perf_table()  # For BWR processing
     create_weight_pref_table()  # For weight preferences
     create_horse_rating_table()  # ensure horse_rating exists (with LastUpdate)
-    create_rating_history_table()          # ✅ ratings change-log
 
     # 5. Load and process horses
     horse_id_df = pd.read_csv("horse_ids_to_update.csv")
@@ -966,29 +881,6 @@ if __name__ == "__main__":
 
                     try:
                         race_date = datetime.strptime(date_str, "%d/%m/%y")
-                        # --- Rating history (append-only, per change) ---
-                        if len(cols) > 8:
-                            rating_text = sanitize_text(cols[8].get_text())
-                            official_rating = safe_int(rating_text) if rating_text else None
-                        else:
-                            official_rating = None
-
-                        asof_date_iso = race_date.strftime("%Y-%m-%d")
-
-                        if horse_id and official_rating is not None:
-                            try:
-                                upsert_rating_history(
-                                    horse_id=horse_id,
-                                    asof_date_iso=asof_date_iso,
-                                    official_rating=float(official_rating),
-                                    source="HKJC",
-                                    note=None
-                                )
-                            except Exception as e:
-                                if DEBUG_LEVEL in ("DEBUG", "TRACE"):
-                                    log("DEBUG", f"Rating history upsert failed for {horse_id} {asof_date_iso}: {e}")
-                        # --- end rating history block ---
-
                         if race_date.month >= 9:
                             season_code = f"{race_date.year%100:02d}/{(race_date.year+1)%100:02d}"
                         else:
@@ -1008,8 +900,9 @@ if __name__ == "__main__":
                 for (season, jockey, trainer), result in jt_combo_map.items():
                     top3 = result["top3"]
                     total = result["total"]
-                    last_date_str = result["last_date"].strftime("%Y-%m-%d") if result["last_date"] else None
-                    last_date = result["last_date"].strftime("%Y-%m-%d") if result["last_date"] else None
+                    # Store ISO for DB; keep display string separate if needed
+                    last_date_iso = result["last_date"].strftime("%Y-%m-%d") if result["last_date"] else None
+                    _last_date_display = result["last_date"].strftime("%d/%m/%y") if result["last_date"] else None
 
                     upsert_jockey_trainer_combo(
                         horse_id=horse_data["HorseID"],
@@ -1018,7 +911,7 @@ if __name__ == "__main__":
                         trainer=trainer,
                         top3_count=top3,
                         total_runs=total,
-                        last_race_date=last_date_str
+                        last_race_date=last_date_iso,
                     )
 
                 log("INFO", f"Processed: {horse_id}")

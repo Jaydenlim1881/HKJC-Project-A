@@ -58,7 +58,7 @@ def parse_date(raw_date):
     day, month, year = m.groups()
     fmt_in = '%d/%m/%Y' if len(year) == 4 else '%d/%m/%y'
     dt = datetime.strptime(f'{day}/{month}/{year}', fmt_in)
-    return dt.strftime('%d/%m/%y')   # always DD/MM/YY
+    return dt.strftime('%Y-%m-%d')   # always YYYY-MM-DD
 
 def parse_distance(dist_str):
     try:
@@ -257,7 +257,7 @@ def scrape_race(driver, race_date, course, race_num):
         race_course = 'ST' if course == 'ST' else 'HV'
         course_type = abbreviated_course_type
         distance = parse_distance(soup.find('td', style=re.compile('width')))
-        season = get_season_code(datetime.strptime(race_date, "%d/%m/%y")) if race_date else None
+        season = get_season_code(datetime.strptime(race_date, "%Y-%m-%d")) if race_date else None
         distance_group = get_distance_group(race_course, course_type, distance) if distance is not None else None
 
         metadata = {
@@ -380,7 +380,7 @@ def main():
     driver = initialize()
     all_data = []
     try:
-        for date in [datetime(2025, 6, 22)]:  # Update dates if needed
+        for date in [datetime(2025, 7, 16)]:  # Update dates if needed
             date_str = date.strftime('%Y/%m/%d')
             date_file_str = date.strftime('%Y_%m_%d')
             display_date = date.strftime('%d/%m/%y')  # NEW: for display/logs/DB/CSV
@@ -401,9 +401,11 @@ def main():
                 if col not in df.columns:
                     df[col] = None
             df.loc[df['Placing'] == 1, 'LBW'] = "0.01"
-            # Ensure RaceDate is DD/MM/YY (TEXT)
+            # Ensure RaceDate is ISO 'YYYY-MM-DD'
             if 'RaceDate' in df.columns:
-                df['RaceDate'] = df['RaceDate'].apply(parse_date).astype(str)
+                df['RaceDate'] = df['RaceDate'].apply(
+                    lambda d: datetime.strptime(d, "%Y-%m-%d").strftime("%Y-%m-%d") if isinstance(d, str) else d
+                )
             df = df[CONFIG['columns']]
             csv_path = f"{CONFIG['output_dir']}/races_{date_file_str}.csv"
             df.to_csv(csv_path, index=False)
