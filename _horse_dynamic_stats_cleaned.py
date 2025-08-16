@@ -1015,8 +1015,17 @@ def migrate_turncount_to_real(db_path="hkjc_horses_dynamic.db"):
         """)
         cur.execute("DROP TABLE horse_running_style_pref_old")
 
+    # Clear existing rows so they can be rebuilt with precise TurnCount values
+    cur.execute("DELETE FROM horse_running_style_pref")
+
     conn.commit()
     conn.close()
+
+    # Rebuild style preferences to retain original fractional TurnCount values
+    try:
+        rebuild_running_style_pref()
+    except Exception as e:
+        log("WARNING", f"Failed to rebuild running_style_pref: {e}")
 
 def create_running_position_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
@@ -2006,10 +2015,11 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
         if not bucket:
             continue
 
+        tc = 0
         try:
-            tc = int(round(float(turn_cnt))) if turn_cnt is not None else 0
-        except:
-            tc = 0
+            tc = int(round(float(turn_cnt)))
+        except Exception as e:
+            log("DEBUG", f"Failed to convert turn count '{turn_cnt}': {e}")
 
         band = _field_size_band(fs)
         key = (hid, season, rc or "Unknown", ctype or "Unknown",
