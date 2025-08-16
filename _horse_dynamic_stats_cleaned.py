@@ -2017,7 +2017,7 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
 
         tc = 0
         try:
-            tc = int(round(float(turn_cnt)))
+            tc = round(float(turn_cnt), 1)
         except Exception as e:
             log("DEBUG", f"Failed to convert turn count '{turn_cnt}': {e}")
 
