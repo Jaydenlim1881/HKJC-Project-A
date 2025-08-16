@@ -15,7 +15,6 @@ from utils import (
 
 import sqlite3
 
-
 from collections import defaultdict
 from datetime import datetime
 import pandas as pd
@@ -631,15 +630,16 @@ def upsert_running_position(data_dict):
     
     cursor.execute("""
         INSERT OR REPLACE INTO horse_running_position (
-            HorseID, RaceDate, RaceNo, Season,
+            HorseID, RaceDate, RaceID, RaceNo, Season,
             RaceCourse, CourseType,
             DistanceGroup, TurnCount,
             EarlyPos, MidPos, FinalPos, FinishTime,
             Placing, FieldSize, LastUpdate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data_dict.get("HorseID"),
         race_date,
+        data_dict.get("RaceID"),
         data_dict.get("RaceNo"),
         data_dict.get("Season"),
         data_dict.get("RaceCourse"),
@@ -956,6 +956,7 @@ def migrate_turncount_to_real(db_path="hkjc_horses_dynamic.db"):
             CREATE TABLE horse_running_position (
                 HorseID TEXT,
                 RaceDate TEXT,
+                RaceID TEXT,
                 RaceNo TEXT,
                 Season TEXT,
                 RaceCourse TEXT,
@@ -969,14 +970,14 @@ def migrate_turncount_to_real(db_path="hkjc_horses_dynamic.db"):
                 Placing INTEGER,
                 FieldSize INTEGER,
                 LastUpdate TEXT,
-                PRIMARY KEY (HorseID, RaceDate, RaceNo)
+                PRIMARY KEY (HorseID, RaceID)
             );
         """)
         cur.execute("""
             INSERT INTO horse_running_position
-            (HorseID, RaceDate, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
+            (HorseID, RaceDate, RaceID, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
              TurnCount, EarlyPos, MidPos, FinalPos, FinishTime, Placing, FieldSize, LastUpdate)
-            SELECT HorseID, RaceDate, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
+            SELECT HorseID, RaceDate, NULL AS RaceID, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
                    TurnCount, EarlyPos, MidPos, FinalPos, FinishTime, Placing, FieldSize, LastUpdate
             FROM horse_running_position_old
         """)
@@ -1034,6 +1035,7 @@ def create_running_position_table():
         CREATE TABLE IF NOT EXISTS horse_running_position (
             HorseID TEXT,
             RaceDate TEXT,
+            RaceID TEXT NOT NULL,
             RaceNo TEXT,
             Season TEXT,
             RaceCourse TEXT,
@@ -1047,7 +1049,7 @@ def create_running_position_table():
             Placing INTEGER,
             FieldSize INTEGER,
             LastUpdate TEXT,
-            PRIMARY KEY (HorseID, RaceDate, RaceNo)
+            PRIMARY KEY (HorseID, RaceID)
         );
     """)
     conn.commit()
@@ -2064,5 +2066,19 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
 if __name__ == "__main__":
     print("\n[INFO] This module provides helper functions for processing HKJC horse data.")
     print("       It's designed to be imported, not run directly.")
+
+    conn = sqlite3.connect("hkjc_horses_dynamic.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE horse_running_position
+        SET RaceID = (
+            substr(RaceDate, 1, 4) || substr(RaceDate, 6, 2) || substr(RaceDate, 9, 2) || 
+            '_' || RaceCourse || '_' || printf('%02d', RaceNo)
+        )
+        WHERE RaceID IS NULL
+    """)
+    conn.commit()
+    conn.close()
+    print("[MIGRATION] Fixed NULL RaceIDs in existing data")
 
     create_running_position_table()

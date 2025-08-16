@@ -15,7 +15,6 @@ from utils import (
 
 import sqlite3
 
-
 from collections import defaultdict
 import pandas as pd
 from bs4 import BeautifulSoup, UnicodeDammit
@@ -402,9 +401,10 @@ def extract_dynamic_stats(horse_url):
                 continue
 
             try:
-                # -- Extract race link details
+                # -- Extract race link details --
                 race_link_tag = cols[0].find("a")
                 if race_link_tag and race_link_tag.has_attr("href"):
+                    # Extract basic race info
                     match = re.search(r'RaceDate=([\d/]+)&Racecourse=([A-Z]+)&RaceNo=(\d+)', race_link_tag['href'])
                     if match:
                         race_date_str = match.group(1)
@@ -412,8 +412,22 @@ def extract_dynamic_stats(horse_url):
                         race_no = match.group(3)
                     else:
                         continue
-                else:
-                    continue
+
+                    # PROPER RaceID EXTRACTION - THIS IS THE KEY FIX
+                    race_id = sanitize_text(race_link_tag.get_text(strip=True))
+                    
+                    # Clean the extracted RaceID - remove all non-numeric characters
+                    race_id = ''.join(c for c in race_id if c.isdigit())
+                    
+                    # VALIDATION - Only use if we got a proper numeric ID
+                    if race_id and len(race_id) >= 3:  # Real RaceIDs are at least 3 digits
+                        log("DEBUG", f"Using extracted RaceID: {race_id}")
+                    else:
+                        # Only construct ID as last resort
+                        race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
+                        constructed_id = f"{race_date_obj.strftime('%Y%m%d')}_{race_course}_{int(race_no):02d}"
+                        race_id = constructed_id
+                        log("WARNING", f"Using constructed RaceID: {constructed_id} (Original: {race_link_tag.get_text()})")
 
                 # -- Extract Distance & Course Info
                 course_key_raw = sanitize_text(cols[3].get_text())
@@ -454,8 +468,15 @@ def extract_dynamic_stats(horse_url):
 
                 # -- Build data dict
                 race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
+                race_id = (
+                    f"{race_date_obj.strftime('%Y%m%d')}_{race_course}_{int(race_no):02d}"
+                    if race_no is not None and str(race_no).isdigit()
+                    else None
+                )
                 rp_data = {
                     "HorseID": horse_id,
+                    "RaceDate": race_date_obj.strftime("%Y-%m-%d"),
+                    "RaceID": race_id or f"{race_date_obj.strftime('%Y%m%d')}_{race_course}_{int(race_no):02d}",
                     "RaceNo": race_no,
                     "Season": season,
                     "RaceCourse": race_course,
@@ -468,16 +489,15 @@ def extract_dynamic_stats(horse_url):
                     "FinishTime": finish_time,
                     "Placing": placing if placing is not None else final_pos,
                     "FieldSize": field_size,
-                    # Store ISO date for downstream sorting/queries
-                    "RaceDate": race_date_obj.strftime("%Y-%m-%d"),
                     # Separate display string if needed by consumers
                     "RaceDateDisplay": race_date_obj.strftime("%d/%m/%y"),
                 }
-                
+
+
                 upsert_running_position(rp_data)
 
             except Exception as err:
-                log("WARNING", f"Skipped row for {horse_id} due to: {err}") 
+                log("WARNING", f"Skipped row for {horse_id} due to: {err}")
 
         return {
             "HorseID": horse_url.split("HorseId=")[-1],
