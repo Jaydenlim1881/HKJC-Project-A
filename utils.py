@@ -138,26 +138,69 @@ def get_distance_group_from_row(course_info, distance_str):
     except:
         return "Unknown"
 
-def estimate_turn_count(race_course, course_type, distance):
-    if race_course == "ST":
-        if distance <= 1200:
-            return 0
-        elif distance <= 1600:
-            return 1
-        elif distance <= 2200:
-            return 2
-        else:
-            return 3
-    elif race_course == "HV":
-        if distance <= 1200:
-            return 1
-        elif distance <= 1650:
-            return 2
-        elif distance <= 2200:
-            return 3
-        else:
-            return 4
-    return 0
+# --- Turn geometry (CountTurn) helpers ---------------------------------------
+
+def _norm_course(course: str) -> str:
+    """Normalize race course to canonical short code: 'ST' or 'HV'."""
+    t = (course or "").strip().upper()
+    if t in {"ST", "SHA TIN"} or "SHA TIN" in t:
+        return "ST"
+    if t in {"HV", "HAPPY VALLEY"} or "HAPPY VALLEY" in t:
+        return "HV"
+    return t  # leave unknowns as-is
+
+def _norm_surface(surface: str) -> str:
+    """Normalize surface to canonical: 'TURF' or 'AWT'."""
+    t = (surface or "").strip().upper()
+    if t in {"TURF", "T"}:
+        return "TURF"
+    if t in {"AWT", "ALL WEATHER", "ALL-WEATHER", "ALL WEATHER TRACK", "DIRT"}:
+        return "AWT"
+    return t  # leave unknowns as-is
+
+# Exact mapping per your specification
+_TURN_COUNT_MAP = {
+    ("ST", "TURF"): {
+        1000: 0.0,
+        1200: 1.0, 1400: 1.0, 1600: 1.0, 1800: 1.0,
+        2000: 2.0, 2200: 2.0, 2400: 2.0,
+    },
+    ("ST", "AWT"): {
+        1200: 1.0,
+        1650: 2.0, 1800: 2.0, 2000: 2.0,
+        2400: 3.0,
+    },
+    ("HV", "TURF"): {
+        1000: 1.0,
+        1200: 1.5,
+        1650: 2.5, 1800: 2.5,
+        2200: 3.5, 2400: 3.5,
+    },
+}
+
+def get_turn_count(race_course: str, surface: str, distance: int | str):
+    """Return CountTurn as float; None if unmapped."""
+    try:
+        d = int(str(distance).strip())
+    except Exception:
+        return None
+    c = _norm_course(race_course)
+    s = _norm_surface(surface)
+    if c == "HV":
+        s = "TURF"
+    m = _TURN_COUNT_MAP.get((c, s))
+    if not m:
+        return None
+    return m.get(d)
+
+def is_straight(turn_count):
+    return turn_count == 0.0
+
+def is_fractional_turn(turn_count):
+    return (turn_count is not None) and (float(turn_count) % 1.0 != 0.0)
+
+def is_one_turn_exact(turn_count):
+    return turn_count == 1.0
 
 def get_draw_group(draw_number, field_size=None):
     """
@@ -201,3 +244,4 @@ def get_jump_type(previous_class, current_class):
             return "SAME"
     except:
         return "UNKNOWN"
+

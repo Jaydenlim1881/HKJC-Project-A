@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from utils import (
     log, sanitize_text, clean_placing, convert_finish_time,
-    get_distance_group, estimate_turn_count, get_draw_group,
+    get_distance_group, get_turn_count, get_draw_group,
     get_jump_type, get_distance_group_from_row, get_season_code
 )
 
@@ -31,7 +31,6 @@ from _horse_dynamic_stats_cleaned import (
     sanitize_text,
     build_exact_distance_pref,
     convert_finish_time,
-    estimate_turn_count,
     upsert_running_position,
     create_running_position_table,
     build_course_pref,
@@ -65,6 +64,7 @@ from _horse_dynamic_stats_cleaned import (
     create_horse_rating_table,
     upsert_horse_rating
 )
+from _horse_dynamic_stats_cleaned import create_running_style_pref_table, migrate_turncount_to_real
 
 # -----------------------------
 # DYNAMIC STATS UPSERT (LOCAL)
@@ -89,7 +89,6 @@ def create_going_pref_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             PRIMARY KEY (HorseID, Season, GoingType)
         );
     """)
@@ -120,10 +119,12 @@ def upsert_dynamic_stats(
             RecentForm5 INTEGER,
             DaysSinceLastRun INTEGER,
             FitnessIndicator INTEGER,
+            NumRecentRuns INTEGER,
             LastUpdate TEXT
         )
     ''')
 
+    num_recent_runs = len(recent_form)
     recent_form = (recent_form + [None] * 5)[:5]
     last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
 
@@ -133,14 +134,16 @@ def upsert_dynamic_stats(
             RecentForm1, RecentForm2, RecentForm3, RecentForm4, RecentForm5,
             DaysSinceLastRun,
             FitnessIndicator,
+            NumRecentRuns,
             LastUpdate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         horse_id,
         recent_form[0], recent_form[1], recent_form[2],
         recent_form[3], recent_form[4],
         days_since_last_run,
         int(fitness) if str(fitness).isdigit() else None,
+        num_recent_runs,
         last_update
     ))
 
@@ -439,7 +442,8 @@ def extract_dynamic_stats(horse_url):
 
                 # -- Distance Group & Turn Count
                 dist_group = get_distance_group(race_course, course_type, distance)
-                turn_count = estimate_turn_count(race_course, course_type, distance)
+                surface_norm = "AWT" if (str(course_type).strip().upper() == "AWT") else "TURF"
+                turn_count = get_turn_count(race_course, surface_norm, distance) or 0.0
 
                 # -- Season
                 race_date = datetime.strptime(race_date_str, "%Y/%m/%d")
@@ -477,7 +481,8 @@ def extract_dynamic_stats(horse_url):
 
         return {
             "HorseID": horse_url.split("HorseId=")[-1],
-            "RecentForm": recent_form + [None] * (5 - len(recent_form)),
+            "RecentForm": recent_form,
+            "NumRecentRuns": len(recent_form),
             "DaysSinceLastRun": days_since_last_run,
             "FitnessIndicator": fitness_count,
             "BestDistance": best_distance,
@@ -508,6 +513,8 @@ if __name__ == "__main__":
     print("       It's designed to be imported, not run directly.")
 
     create_running_position_table()
+    create_running_style_pref_table()
+    migrate_turncount_to_real()
 
     # Optional one-off backfill for ALL horses
     try:
@@ -928,4 +935,3 @@ if __name__ == "__main__":
 
     log("INFO", f"\nSummary: {success} succeeded, {failure} failed out of {len(horse_ids)}")
     log("INFO", f"Batch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-

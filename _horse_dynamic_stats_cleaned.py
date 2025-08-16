@@ -8,7 +8,7 @@ import time
 from utils import (
     log, sanitize_text, clean_placing, convert_finish_time,
     safe_int, safe_float, parse_weight, parse_lbw,
-    get_distance_group, estimate_turn_count, get_draw_group,
+    get_distance_group, get_turn_count, get_draw_group,
     get_jump_type, get_distance_group_from_row, get_season_code
 )
 
@@ -347,7 +347,6 @@ def build_weight_pref_from_dict(race_history_records, horse_id):
                 "Top3Rate": rate,
                 "Top3Count": top3,
                 "TotalRuns": total,
-                "Top3TR": f"{top3}/{total}",
                 "LastUpdate": last_update
             })
 
@@ -451,7 +450,6 @@ def build_bwr_distance_perf(rows):
                     "Top3Rate": rate,
                     "Top3Count": top3,
                     "TotalRuns": total,
-                    "Top3TR": f"{top3}/{total}",
                     "LastUpdate": last_update
                 })
 
@@ -472,7 +470,6 @@ def upsert_hwtr_trend(hwtr_data):
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, Class, HWTRGroup)
         );
@@ -481,14 +478,14 @@ def upsert_hwtr_trend(hwtr_data):
     for row in hwtr_data:
         cursor.execute("""
             REPLACE INTO horse_hwtr_trend (
-                HorseID, Season, Class, HWTRGroup, Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                HorseID, Season, Class, HWTRGroup, Top3Rate, Top3Count, TotalRuns, LastUpdate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             row["HorseID"], row["Season"], row["Class"], row["HWTRGroup"],
-            row["Top3Rate"], row["Top3Count"], row["TotalRuns"], row["Top3TR"], row["LastUpdate"]
+            row["Top3Rate"], row["Top3Count"], row["TotalRuns"], row["LastUpdate"]
         ))
 
-        log("DEBUG", f"UPSERT HWTR → {row['HorseID']} | {row['Season']} | Class={row['Class']} | Group={row['HWTRGroup']} | Top3TR={row['Top3TR']}")
+        log("DEBUG", f"UPSERT HWTR → {row['HorseID']} | {row['Season']} | Class={row['Class']} | Group={row['HWTRGroup']}")
 
     conn.commit()
     conn.close()
@@ -604,13 +601,12 @@ def build_hwtr_per_class(rows, horse_id):
                 "Top3Rate": round(top3rate, 3),
                 "Top3Count": top3,
                 "TotalRuns": total,
-                "Top3TR": f"{top3}/{total}",
                 "LastUpdate": datetime.now().strftime("%Y/%m/%d %H:%M")
             })
 
     # Fix #3: Debug output
     for r in result:
-        log("DEBUG", f"HWTR {r['HorseID']} | Class={r['Class']} | Group={r['HWTRGroup']} | Top3TR={r['Top3TR']} | Top3Rate={r['Top3Rate']:.2f}")
+        log("DEBUG", f"HWTR {r['HorseID']} | Class={r['Class']} | Group={r['HWTRGroup']} | Top3Rate={r['Top3Rate']:.2f}")
     
     return result
 
@@ -722,8 +718,7 @@ def build_exact_distance_pref(rows):
             final_result[season][group] = {
                 "Top3Rate": round(rate, 3),
                 "Top3Count": top3,
-                "TotalRuns": runs,
-                "Top3TR": f"{top3}/{runs}"
+                "TotalRuns": runs
             }
 
     final_result["_races"] = race_info_list
@@ -742,7 +737,6 @@ def upsert_distance_pref(horse_id, season, distance_pref):
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, DistanceGroup)
         )
@@ -751,7 +745,6 @@ def upsert_distance_pref(horse_id, season, distance_pref):
     # ✅ Add these to ensure missing columns are added safely
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_distance_pref", "Top3Count", "INTEGER")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_distance_pref", "TotalRuns", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_distance_pref", "Top3TR", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_distance_pref", "LastUpdate", "TEXT")
 
 
@@ -763,13 +756,13 @@ def upsert_distance_pref(horse_id, season, distance_pref):
             cursor.execute('''
                 INSERT OR REPLACE INTO horse_distance_pref (
                     HorseID, Season, DistanceGroup,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
+                    Top3Rate, Top3Count, TotalRuns, LastUpdate
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 horse_id, season, dist,
                 values["Top3Rate"], values["Top3Count"],
-                values["TotalRuns"], values["Top3TR"],
+                values["TotalRuns"],
                 last_update
             ))
 
@@ -787,7 +780,6 @@ def create_horse_jockey_combo_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, Jockey)
         );
@@ -887,17 +879,16 @@ def upsert_horse_jockey_combo(horse_id, rows):
             if runs < 3:
                 top3_rate /= 2
             top3_rate = round(top3_rate, 4)
-            top3tr = f"{top3}/{runs}"
 
             cursor.execute('''
                 INSERT OR REPLACE INTO horse_jockey_combo (
                     HorseID, Season, Jockey,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR,
+                    Top3Rate, Top3Count, TotalRuns,
                     LastRaceDate, LastUpdate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 horse_id, season, jockey,
-                top3_rate, top3, runs, top3tr,
+                top3_rate, top3, runs,
                 values["LastRaceDate"],  # Now properly included
                 last_update
             ))
@@ -909,7 +900,7 @@ def create_bwr_distance_perf_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
     cursor = conn.cursor()
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS horse_bwr_distance_perf (
+        CREATE TABLE IF NOT EXISTS horse_bwr_distance_pref (
             HorseID TEXT,
             Season TEXT,
             Distance INTEGER,
@@ -917,7 +908,6 @@ def create_bwr_distance_perf_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, Distance, BWRGroup)
         )
@@ -935,19 +925,96 @@ def create_running_style_pref_table():
             RaceCourse TEXT,            -- ST / HV
             CourseType TEXT,            -- A, B, C, C+3, AWT (Turf unless AWT)
             DistanceGroup TEXT,
-            TurnCount INTEGER,
+            TurnCount REAL,
             FieldSizeBand TEXT,
             StyleBucket TEXT,           -- Leader / On-pace / Stalker / Closer
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (
                 HorseID, Season, RaceCourse, CourseType,
                 DistanceGroup, TurnCount, FieldSizeBand, StyleBucket)
         );
     """)
+    conn.commit()
+    conn.close()
+
+def migrate_turncount_to_real(db_path="hkjc_horses_dynamic.db"):
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+
+    # --- horse_running_position ---
+    cur.execute("PRAGMA table_info(horse_running_position)")
+    cols = [r[1:] for r in cur.fetchall()]  # (cid,name,type,notnull,default,pk)
+    # If TurnCount already REAL, skip
+    tc_type = next((r[1] for r in cols if r[0] == "TurnCount"), None)
+    if tc_type and tc_type.upper() != "REAL":
+        cur.execute("ALTER TABLE horse_running_position RENAME TO horse_running_position_old")
+        cur.execute("""
+            CREATE TABLE horse_running_position (
+                HorseID TEXT,
+                RaceDate TEXT,
+                RaceNo TEXT,
+                Season TEXT,
+                RaceCourse TEXT,
+                CourseType TEXT,
+                DistanceGroup TEXT,
+                TurnCount REAL,
+                EarlyPos INTEGER,
+                MidPos REAL,
+                FinalPos INTEGER,
+                FinishTime REAL,
+                Placing INTEGER,
+                FieldSize INTEGER,
+                LastUpdate TEXT,
+                PRIMARY KEY (HorseID, RaceDate, RaceNo)
+            );
+        """)
+        cur.execute("""
+            INSERT INTO horse_running_position
+            (HorseID, RaceDate, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
+             TurnCount, EarlyPos, MidPos, FinalPos, FinishTime, Placing, FieldSize, LastUpdate)
+            SELECT HorseID, RaceDate, RaceNo, Season, RaceCourse, CourseType, DistanceGroup,
+                   TurnCount, EarlyPos, MidPos, FinalPos, FinishTime, Placing, FieldSize, LastUpdate
+            FROM horse_running_position_old
+        """)
+        cur.execute("DROP TABLE horse_running_position_old")
+
+    # --- horse_running_style_pref ---
+    cur.execute("PRAGMA table_info(horse_running_style_pref)")
+    cols = [r[1:] for r in cur.fetchall()]
+    tc_type = next((r[1] for r in cols if r[0] == "TurnCount"), None)
+    if tc_type and tc_type.upper() != "REAL":
+        cur.execute("ALTER TABLE horse_running_style_pref RENAME TO horse_running_style_pref_old")
+        cur.execute("""
+            CREATE TABLE horse_running_style_pref (
+                HorseID TEXT,
+                Season TEXT,
+                RaceCourse TEXT,
+                CourseType TEXT,
+                DistanceGroup TEXT,
+                TurnCount REAL,
+                FieldSizeBand TEXT,
+                StyleBucket TEXT,
+                Top3Rate REAL,
+                Top3Count INTEGER,
+                TotalRuns INTEGER,
+                LastUpdate TEXT,
+                PRIMARY KEY (HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount, FieldSizeBand, StyleBucket)
+            );
+        """)
+        cur.execute("""
+            INSERT INTO horse_running_style_pref
+            (HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount,
+             FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate)
+            SELECT HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount,
+                   FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
+            FROM horse_running_style_pref_old
+        """)
+        cur.execute("DROP TABLE horse_running_style_pref_old")
+
     conn.commit()
     conn.close()
 
@@ -963,7 +1030,7 @@ def create_running_position_table():
             RaceCourse TEXT,
             CourseType TEXT,
             DistanceGroup TEXT,
-            TurnCount INTEGER,
+            TurnCount REAL,
             EarlyPos INTEGER,
             MidPos REAL,
             FinalPos INTEGER,
@@ -989,21 +1056,20 @@ def upsert_bwr_distance_perf(horse_id, bwr_perf_list):
         row["HorseID"] = horse_id  # Inject the HorseID into each row
 
         cursor.execute("""
-            INSERT INTO horse_bwr_distance_perf (
+            INSERT INTO horse_bwr_distance_pref (
                 HorseID, Season, Distance, BWRGroup,
-                Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                Top3Rate, Top3Count, TotalRuns, LastUpdate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(HorseID, Season, Distance, BWRGroup)
             DO UPDATE SET
                 Top3Rate = excluded.Top3Rate,
                 Top3Count = excluded.Top3Count,
                 TotalRuns = excluded.TotalRuns,
-                Top3TR = excluded.Top3TR,
                 LastUpdate = excluded.LastUpdate
         """, (
             row["HorseID"], row["Season"], row["Distance"], row["BWRGroup"],
             row["Top3Rate"], row["Top3Count"], row["TotalRuns"],
-            row["Top3TR"], last_update
+            last_update
         ))
 
     conn.commit()
@@ -1020,7 +1086,6 @@ def create_trainer_combo_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, Trainer)
         );
@@ -1071,7 +1136,6 @@ def create_jockey_trainer_combo_table():
             Top3Count INTEGER,
             TotalRuns INTEGER,
             LastRaceDate TEXT,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, Jockey, Trainer)
         )
@@ -1092,7 +1156,6 @@ def create_draw_pref_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (HorseID, Season, RaceCourse, DistanceGroup, DrawGroup)
         )
@@ -1120,7 +1183,6 @@ def create_going_pref_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, GoingType)
         );
@@ -1146,7 +1208,6 @@ def create_weight_pref_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, DistanceGroup, WeightGroup)
         )
@@ -1165,7 +1226,6 @@ def create_class_jump_pref_table():
             Top3Rate   REAL,
             Top3Count  INTEGER,
             TotalRuns  INTEGER,
-            Top3TR     TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, JumpType)
         );
@@ -1264,7 +1324,6 @@ def upsert_weight_pref(horse_id, weight_pref_list):
             
             # Calculate rate with small sample adjustment
             rate = round((top3 / total) if total >= 3 else (top3 / total) * 0.5, 4) if total > 0 else 0.0
-            top3tr = f"{top3}/{total}"
             last_update = row.get("LastUpdate") or datetime.now().strftime("%Y/%m/%d %H:%M")
 
             # ====== 6. DEBUG BEFORE INSERT ======
@@ -1273,20 +1332,19 @@ def upsert_weight_pref(horse_id, weight_pref_list):
             log("DEBUG", f"  DistGroup: {row['DistanceGroup']}")
             log("DEBUG", f"  WeightGroup: {row['WeightGroup']}")
             log("DEBUG", f"  CarriedWeight: {row.get('CarriedWeight', 'None')}")
-            log("DEBUG", f"  Stats: {top3tr} (Rate: {rate})")
+            log("DEBUG", f"  Stats: {top3}/{total} (Rate: {rate})")
 
             # ====== 7. EXECUTE UPSERT ======
             cursor.execute("""
                 INSERT INTO horse_weight_pref (
                     HorseID, Season, DistanceGroup, WeightGroup, CarriedWeight,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    Top3Rate, Top3Count, TotalRuns, LastUpdate
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(HorseID, Season, DistanceGroup, WeightGroup) DO UPDATE SET
                     CarriedWeight=excluded.CarriedWeight,
                     Top3Rate=excluded.Top3Rate,
                     Top3Count=excluded.Top3Count,
                     TotalRuns=excluded.TotalRuns,
-                    Top3TR=excluded.Top3TR,
                     LastUpdate=excluded.LastUpdate
             """, (
                 horse_id,
@@ -1297,7 +1355,6 @@ def upsert_weight_pref(horse_id, weight_pref_list):
                 rate,
                 top3,
                 total,
-                top3tr,
                 last_update
             ))
             success_count += 1
@@ -1337,21 +1394,18 @@ def upsert_trainer_combo(horse_id, trainer_combo_dict):
                 rate /= 2
             rate = round(rate, 4)
 
-            top3tr = f"{top3}/{total}"
-
             last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
             cursor.execute("""
                 INSERT INTO horse_trainer_combo 
-                (HorseID, Season, Trainer, Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (HorseID, Season, Trainer, Top3Rate, Top3Count, TotalRuns, LastUpdate)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(HorseID, Season, Trainer)
-                DO UPDATE SET 
+                DO UPDATE SET
                     Top3Rate=excluded.Top3Rate,
                     Top3Count=excluded.Top3Count,
                     TotalRuns=excluded.TotalRuns,
-                    Top3TR=excluded.Top3TR,
                     LastUpdate=excluded.LastUpdate
-            """, (horse_id, season, trainer, rate, top3, total, top3tr, last_update))
+            """, (horse_id, season, trainer, rate, top3, total, last_update))
 
     conn.commit()
     conn.close()
@@ -1369,7 +1423,6 @@ def upsert_going_pref(horse_id, going_pref_dict):
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, GoingType)
         );
@@ -1377,7 +1430,6 @@ def upsert_going_pref(horse_id, going_pref_dict):
 
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "Top3Count", "INTEGER")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "TotalRuns", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "Top3TR", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_going_pref", "LastUpdate", "TEXT")
 
     for season, goings in going_pref_dict.items():
@@ -1391,16 +1443,15 @@ def upsert_going_pref(horse_id, going_pref_dict):
                 if total < 3:
                     rate /= 2
                 top3_rate = round(rate, 4)
-                top3_tr = f"{top3}/{total}"
 
                 cursor.execute('''
                     INSERT OR REPLACE INTO horse_going_pref (
                         HorseID, Season, GoingType,
-                        Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        Top3Rate, Top3Count, TotalRuns, LastUpdate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     horse_id, season, going_type,
-                    top3_rate, top3, total, top3_tr, last_update
+                    top3_rate, top3, total, last_update
                 ))
 
     conn.commit()
@@ -1418,24 +1469,22 @@ def upsert_draw_pref(horse_id, draw_pref_dict):
             rate = round(top3 / total, 3) if total > 0 else 0.0
             if total < 3:
                 rate /= 2
-            top3tr = f"{top3}/{total}"
 
             cursor.execute("""
                 INSERT INTO horse_draw_pref (
                     HorseID, Season, RaceCourse, DistanceGroup, DrawGroup,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
+                    Top3Rate, Top3Count, TotalRuns, LastUpdate
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(HorseID, Season, RaceCourse, DistanceGroup, DrawGroup)
                 DO UPDATE SET
                     Top3Rate = excluded.Top3Rate,
                     Top3Count = excluded.Top3Count,
                     TotalRuns = excluded.TotalRuns,
-                    Top3TR = excluded.Top3TR,
                     LastUpdate = excluded.LastUpdate;
             """, (
                 horse_id, season, race_course, distance_group, draw_group,
-                rate, top3, total, top3tr, last_update
+                rate, top3, total, last_update
             ))
 
     conn.commit()
@@ -1487,16 +1536,15 @@ def upsert_jockey_trainer_combo(horse_id, season, jockey, trainer, top3_count, t
             INSERT INTO horse_jockey_trainer_combo (
                 HorseID, Season, Jockey, Trainer,
                 Top3Rate, Top3Count, TotalRuns,
-                LastRaceDate, Top3TR, LastUpdate
+                LastRaceDate, LastUpdate
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(HorseID, Season, Jockey, Trainer)
             DO UPDATE SET
                 Top3Rate = excluded.Top3Rate,
                 Top3Count = excluded.Top3Count,
                 TotalRuns = excluded.TotalRuns,
                 LastRaceDate = excluded.LastRaceDate,
-                Top3TR = excluded.Top3TR,
                 LastUpdate = excluded.LastUpdate
         """
 
@@ -1504,7 +1552,6 @@ def upsert_jockey_trainer_combo(horse_id, season, jockey, trainer, top3_count, t
             horse_id, season, jockey, trainer,
             rate, top3_count, total_runs,
             validated_date,
-            f"{top3_count}/{total_runs}",
             datetime.now().strftime("%Y/%m/%d %H:%M")
         )
 
@@ -1585,8 +1632,7 @@ def build_course_pref(rows):
             result[season][(race_course, course_type)] = {
                 "Top3Rate": round(rate, 3),
                 "Top3Count": top3,
-                "TotalRuns": runs,
-                "Top3TR": f"{top3}/{runs}"
+                "TotalRuns": runs
             }
 
     return result
@@ -1774,7 +1820,6 @@ def upsert_course_pref(horse_id, course_pref):
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            Top3TR TEXT,
             LastUpdate TEXT,
             PRIMARY KEY (HorseID, Season, RaceCourse, CourseType)
         )
@@ -1783,7 +1828,6 @@ def upsert_course_pref(horse_id, course_pref):
     # ✅ Add these 3 lines right here to patch older DBs
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_course_pref", "Top3Count", "INTEGER")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_course_pref", "TotalRuns", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_course_pref", "Top3TR", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_course_pref", "LastUpdate", "TEXT")
 
     for season, courses in course_pref.items():
@@ -1794,12 +1838,12 @@ def upsert_course_pref(horse_id, course_pref):
             cursor.execute('''
                 INSERT OR REPLACE INTO horse_course_pref (
                     HorseID, Season, RaceCourse, CourseType,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    Top3Rate, Top3Count, TotalRuns, LastUpdate
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 horse_id, season, race_course, course_type,
                 values["Top3Rate"], values["Top3Count"],
-                values["TotalRuns"], values["Top3TR"], last_update
+                values["TotalRuns"], last_update
             ))
 
     conn.commit()
@@ -1819,7 +1863,6 @@ def upsert_class_jump_pref(horse_id, jump_stats):
     # Ensure columns exist (for older DBs)
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_class_jump_pref", "Top3Count", "INTEGER")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_class_jump_pref", "TotalRuns", "INTEGER")
-    ensure_column_exists("hkjc_horses_dynamic.db", "horse_class_jump_pref", "Top3TR", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_class_jump_pref", "LastUpdate", "TEXT")
 
     last_update = datetime.now().strftime("%Y/%m/%d %H:%M")
@@ -1837,21 +1880,19 @@ def upsert_class_jump_pref(horse_id, jump_stats):
                 if total < 3 and top3 > 0:
                     rate *= 0.5
             rate = round(rate, 4)
-            top3tr = f"{top3}/{total}"
 
             cursor.execute("""
                 INSERT INTO horse_class_jump_pref (
                     HorseID, Season, JumpType,
-                    Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    Top3Rate, Top3Count, TotalRuns, LastUpdate
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(HorseID, Season, JumpType)
                 DO UPDATE SET
                     Top3Rate = excluded.Top3Rate,
                     Top3Count = excluded.Top3Count,
                     TotalRuns = excluded.TotalRuns,
-                    Top3TR = excluded.Top3TR,
                     LastUpdate = excluded.LastUpdate
-            """, (horse_id, season, jump_type, rate, top3, total, top3tr, last_update))
+            """, (horse_id, season, jump_type, rate, top3, total, last_update))
 
     conn.commit()
     conn.close()
@@ -1866,11 +1907,11 @@ def fetch_class_jump_pref_ordered(horse_id):
     current_season = f"{current_year%100:02d}/{(current_year+1)%100:02d}"
     
     cursor.execute(f"""
-        SELECT Season, JumpType, Top3Rate, Top3Count, TotalRuns, Top3TR
+        SELECT Season, JumpType, Top3Rate, Top3Count, TotalRuns
         FROM horse_class_jump_pref
         WHERE HorseID = ?
-        ORDER BY 
-            CASE 
+        ORDER BY
+            CASE
                 WHEN Season = ? THEN 0  -- Current season first
                 ELSE 99 - CAST(SUBSTR(Season, 1, 2) AS INTEGER  -- Older seasons sorted by recency
             END
@@ -1896,7 +1937,7 @@ def fetch_running_style_pref_ordered(horse_id):
     cur.execute("""
         SELECT
             HorseID, Season, RaceCourse, DistanceGroup, TurnCount,
-            FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate
+            FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
         FROM horse_running_style_pref
         WHERE HorseID = ?
         ORDER BY
@@ -1996,15 +2037,14 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
             rate = top3 / total
             if total < 3 and top3 > 0:  # your 50% damping rule
                 rate *= 0.5
-        top3tr = f"{top3}/{total}"
 
         cur.execute("""
             INSERT OR REPLACE INTO horse_running_style_pref
             (HorseID, Season, RaceCourse, CourseType, DistanceGroup,
              TurnCount, FieldSizeBand, StyleBucket,
-             Top3Rate, Top3Count, TotalRuns, Top3TR, LastUpdate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (*key, rate, top3, total, top3tr, last_update))
+             Top3Rate, Top3Count, TotalRuns, LastUpdate)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (*key, rate, top3, total, last_update))
         upserts += 1
 
     conn.commit()
