@@ -468,15 +468,10 @@ def extract_dynamic_stats(horse_url):
 
                 # -- Build data dict
                 race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
-                race_id = (
-                    f"{race_date_obj.strftime('%Y%m%d')}_{race_course}_{int(race_no):02d}"
-                    if race_no is not None and str(race_no).isdigit()
-                    else None
-                )
                 rp_data = {
                     "HorseID": horse_id,
                     "RaceDate": race_date_obj.strftime("%Y-%m-%d"),
-                    "RaceID": race_id or f"{race_date_obj.strftime('%Y%m%d')}_{race_course}_{int(race_no):02d}",
+                    "RaceID": race_id,
                     "RaceNo": race_no,
                     "Season": season,
                     "RaceCourse": race_course,
