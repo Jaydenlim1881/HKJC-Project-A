@@ -950,3 +950,4 @@ if __name__ == "__main__":
 
     log("INFO", f"\nSummary: {success} succeeded, {failure} failed out of {len(horse_ids)}")
     log("INFO", f"Batch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+

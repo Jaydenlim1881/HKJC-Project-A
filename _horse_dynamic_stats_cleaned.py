@@ -39,19 +39,6 @@ def get_distance_group_simple(distance: int) -> str:
     else:
         return "Endurance"
 
-def _field_size_band(fs: int) -> str:
-    if fs is None:
-        return "Unknown"
-    try:
-        fs = int(fs)
-    except:
-        return "Unknown"
-    if fs <= 9:
-        return "≤9"
-    elif fs <= 12:
-        return "10–12"
-    else:
-        return "13+"
 
 def _compute_style_bucket(early_pos: int, field_size: int) -> str | None:
     """Map early position to a style bucket using % of field.
@@ -190,20 +177,6 @@ def build_weight_pref_from_dict(race_history_records, horse_id):
             return parts[2].strip() if len(parts) > 2 else "Turf"
         except:
             return "Unknown"
-
-    def _field_size_band(fs: int) -> str:
-        if fs is None:
-            return "Unknown"
-        try:
-            fs = int(fs)
-        except:
-            return "Unknown"
-        if fs <= 9:
-            return "≤9"
-        elif fs <= 12:
-            return "10–12"
-        else:
-            return "13+"
 
     def _compute_style_bucket(early_pos: int, field_size: int) -> str | None:
         """
@@ -926,7 +899,6 @@ def create_running_style_pref_table():
             CourseType TEXT,            -- A, B, C, C+3, AWT (Turf unless AWT)
             DistanceGroup TEXT,
             TurnCount REAL,
-            FieldSizeBand TEXT,
             StyleBucket TEXT,           -- Leader / On-pace / Stalker / Closer
             Top3Rate REAL,
             Top3Count INTEGER,
@@ -934,7 +906,7 @@ def create_running_style_pref_table():
             LastUpdate TEXT,
             PRIMARY KEY (
                 HorseID, Season, RaceCourse, CourseType,
-                DistanceGroup, TurnCount, FieldSizeBand, StyleBucket)
+                DistanceGroup, TurnCount, StyleBucket)
         );
     """)
     conn.commit()
@@ -997,21 +969,20 @@ def migrate_turncount_to_real(db_path="hkjc_horses_dynamic.db"):
                 CourseType TEXT,
                 DistanceGroup TEXT,
                 TurnCount REAL,
-                FieldSizeBand TEXT,
                 StyleBucket TEXT,
                 Top3Rate REAL,
                 Top3Count INTEGER,
                 TotalRuns INTEGER,
                 LastUpdate TEXT,
-                PRIMARY KEY (HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount, FieldSizeBand, StyleBucket)
+                PRIMARY KEY (HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount, StyleBucket)
             );
         """)
         cur.execute("""
             INSERT INTO horse_running_style_pref
             (HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount,
-             FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate)
+             StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate)
             SELECT HorseID, Season, RaceCourse, CourseType, DistanceGroup, TurnCount,
-                   FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
+                   StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
             FROM horse_running_style_pref_old
         """)
         cur.execute("DROP TABLE horse_running_style_pref_old")
@@ -1936,7 +1907,7 @@ def fetch_class_jump_pref_ordered(horse_id):
 def fetch_running_style_pref_ordered(horse_id):
     """
     Return horse_running_style_pref rows for a horse with Season sorted newest→oldest.
-    Also applies a sensible ordering for FieldSizeBand and StyleBucket.
+    Also applies a sensible ordering for StyleBucket.
     """
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
     cur = conn.cursor()
@@ -1948,7 +1919,7 @@ def fetch_running_style_pref_ordered(horse_id):
     cur.execute("""
         SELECT
             HorseID, Season, RaceCourse, DistanceGroup, TurnCount,
-            FieldSizeBand, StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
+            StyleBucket, Top3Rate, Top3Count, TotalRuns, LastUpdate
         FROM horse_running_style_pref
         WHERE HorseID = ?
         ORDER BY
@@ -1956,12 +1927,6 @@ def fetch_running_style_pref_ordered(horse_id):
             RaceCourse,
             DistanceGroup,
             TurnCount DESC,
-            CASE FieldSizeBand
-                WHEN '13+'  THEN 3
-                WHEN '10–12' THEN 2
-                WHEN '≤9'   THEN 1
-                ELSE 0
-            END DESC,
             CASE StyleBucket
                 WHEN 'Leader'  THEN 1
                 WHEN 'On-pace' THEN 2
@@ -2023,9 +1988,8 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
         except Exception as e:
             log("DEBUG", f"Failed to convert turn count '{turn_cnt}': {e}")
 
-        band = _field_size_band(fs)
         key = (hid, season, rc or "Unknown", ctype or "Unknown",
-               dist_grp or "Unknown", tc, band, bucket)
+               dist_grp or "Unknown", tc, bucket)
 
         rec = agg.get(key, {"top3": 0, "total": 0})
         rec["total"] += 1
@@ -2053,9 +2017,9 @@ def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
         cur.execute("""
             INSERT OR REPLACE INTO horse_running_style_pref
             (HorseID, Season, RaceCourse, CourseType, DistanceGroup,
-             TurnCount, FieldSizeBand, StyleBucket,
+             TurnCount, StyleBucket,
              Top3Rate, Top3Count, TotalRuns, LastUpdate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (*key, rate, top3, total, last_update))
         upserts += 1
 
