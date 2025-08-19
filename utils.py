@@ -1,7 +1,5 @@
 import re
 import unicodedata
-import csv
-import sqlite3
 from datetime import datetime
 import inspect
 
@@ -140,89 +138,6 @@ def get_distance_group_from_row(course_info, distance_str):
     except:
         return "Unknown"
 
-# ====== INSERT FIELD SIZE FUNCTIONS HERE ======
-# --- Field size lookup -------------------------------------------------------
-
-def _load_race_field_lookup(csv_path: str = "Race_Fieldsize.csv"):
-    """Load Race_Fieldsize.csv into a lookup dict."""
-    lookup = {}
-    try:
-        with open(csv_path, newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
-                try:
-                    key = (
-                        row["RaceDate"].strip(),
-                        row["RaceCourse"].strip().upper(),
-                        int(row["RaceNo"]),
-                    )
-                    lookup[key] = int(row["FieldSize"])
-                except Exception:
-                    continue
-    except FileNotFoundError:
-        pass
-    return lookup
-
-# Loaded once at module import
-_FIELD_SIZE_LOOKUP = _load_race_field_lookup()
-
-def get_field_size(race_date: str, race_course: str, race_no) -> int | None:
-    """Return field size for given race identifiers."""
-    if race_date is None or race_course is None or race_no is None:
-        return None
-    race_course = race_course.strip().upper()
-    try:
-        race_no_int = int(race_no)
-    except Exception:
-        return None
-
-    key = (race_date, race_course, race_no_int)
-    field_size = _FIELD_SIZE_LOOKUP.get(key)
-    if field_size is not None:
-        return field_size
-
-    # Fallback to database lookup
-    try:
-        conn = sqlite3.connect("hkjc_horses_dynamic.db")
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT FieldSize FROM horse_running_position WHERE RaceDate=? AND RaceCourse=? AND RaceNo=? LIMIT 1",
-            (race_date.replace("/", "-"), race_course, str(race_no_int)),
-        )
-        if row := cur.fetchone():
-            return int(row[0])
-    except Exception:
-        pass
-    return None
-
-def backfill_field_sizes():
-    """Backfill NULL FieldSize values in database."""
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cur = conn.cursor()
-    
-    # Get races with NULL FieldSize
-    cur.execute("""
-        SELECT DISTINCT RaceDate, RaceCourse, RaceNo 
-        FROM horse_running_position 
-        WHERE FieldSize IS NULL
-    """)
-    
-    updated = 0
-    for race_date, race_course, race_no in cur.fetchall():
-        field_size = get_field_size(race_date, race_course, race_no)
-        if field_size:
-            cur.execute("""
-                UPDATE horse_running_position
-                SET FieldSize = ?
-                WHERE RaceDate = ? AND RaceCourse = ? AND RaceNo = ?
-                AND FieldSize IS NULL
-            """, (field_size, race_date, race_course, race_no))
-            updated += cur.rowcount
-    
-    conn.commit()
-    conn.close()
-    log("INFO", f"Backfilled {updated} NULL FieldSize values")
-
 # --- Turn geometry (CountTurn) helpers ---------------------------------------
 
 def _norm_course(course: str) -> str:
@@ -329,4 +244,3 @@ def get_jump_type(previous_class, current_class):
             return "SAME"
     except:
         return "UNKNOWN"
-

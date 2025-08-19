@@ -39,7 +39,6 @@ def get_distance_group_simple(distance: int) -> str:
     else:
         return "Endurance"
 
-
 def _compute_style_bucket(early_pos: int, field_size: int) -> str | None:
     """Map early position to a style bucket using % of field.
     Uses (pos-1)/(field_size-1) so leader=0.0, last=1.0."""
