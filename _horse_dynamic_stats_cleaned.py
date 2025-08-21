@@ -601,30 +601,51 @@ def upsert_running_position(data_dict):
             race_date = None
     
     cursor.execute("""
-        INSERT OR REPLACE INTO horse_running_position (
+        INSERT INTO horse_running_position (
             HorseID, RaceDate, RaceID, RaceNo, Season,
             RaceCourse, CourseType,
             DistanceGroup, TurnCount,
             EarlyPos, MidPos, FinalPos, FinishTime,
             Placing, FieldSize, LastUpdate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data_dict.get("HorseID"),
-        race_date,
-        data_dict.get("RaceID"),
-        data_dict.get("RaceNo"),
-        data_dict.get("Season"),
-        data_dict.get("RaceCourse"),
-        data_dict.get("CourseType"),
-        data_dict.get("DistanceGroup"),
-        data_dict.get("TurnCount"),
-        data_dict.get("EarlyPos"),
-        data_dict.get("MidPos"),
-        data_dict.get("FinalPos"),
-        data_dict.get("FinishTime"),
-        data_dict.get("Placing"),
-        data_dict.get("FieldSize"),
-        last_update
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(HorseID, RaceID) DO UPDATE SET
+        RaceDate     = excluded.RaceDate,
+        RaceNo       = excluded.RaceNo,
+        Season       = excluded.Season,
+        RaceCourse   = excluded.RaceCourse,
+        CourseType   = excluded.CourseType,
+        DistanceGroup= excluded.DistanceGroup,
+        TurnCount    = excluded.TurnCount,
+        EarlyPos     = excluded.EarlyPos,
+        MidPos       = excluded.MidPos,
+        FinalPos     = excluded.FinalPos,
+        FinishTime   = excluded.FinishTime,
+        Placing      = excluded.Placing,
+        LastUpdate   = excluded.LastUpdate,
+        -- Only change FieldSize if the current value is NULL or 0
+        FieldSize    = CASE
+                         WHEN horse_running_position.FieldSize IS NULL
+                              OR horse_running_position.FieldSize = 0
+                         THEN excluded.FieldSize
+                         ELSE horse_running_position.FieldSize
+                       END
+""", (
+    data_dict.get("HorseID"),
+    race_date,  # (normalized above)
+    data_dict.get("RaceID"),
+    data_dict.get("RaceNo"),
+    data_dict.get("Season"),
+    data_dict.get("RaceCourse"),
+    data_dict.get("CourseType"),
+    data_dict.get("DistanceGroup"),
+    data_dict.get("TurnCount"),
+    data_dict.get("EarlyPos"),
+    data_dict.get("MidPos"),
+    data_dict.get("FinalPos"),
+    data_dict.get("FinishTime"),
+    data_dict.get("Placing"),
+    data_dict.get("FieldSize"),  # may be None -> preserved
+    last_update
     ))
 
     conn.commit()

@@ -271,8 +271,7 @@ def extract_dynamic_stats(horse_url):
                 race_course_code = None
                 race_no = None
 
-            # ✅ Always set default field size and append row
-            row.attrs["field_size"] = 12
+            # Do not set a placeholder here; let DB keep existing or fill later from CSV
             processed_rows.append(row)
 
         log("DEBUG", f"Running weight preference analysis for {horse_url}")
@@ -463,8 +462,8 @@ def extract_dynamic_stats(horse_url):
                 race_date = datetime.strptime(race_date_str, "%Y/%m/%d")
                 season = f"{race_date.year%100:02d}/{(race_date.year+1)%100:02d}" if race_date.month >= 9 else f"{(race_date.year-1)%100:02d}/{race_date.year%100:02d}"
 
-                # -- Field Size (placeholder for now)
-                field_size = 12  # Replace with real logic later if needed
+                # No guess; leave empty so DB can preserve existing or CSV can fill
+                field_size = None
 
                 # -- Build data dict
                 race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
