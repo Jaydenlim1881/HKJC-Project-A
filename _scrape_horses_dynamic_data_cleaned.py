@@ -20,6 +20,7 @@ import pandas as pd
 from bs4 import BeautifulSoup, UnicodeDammit
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+import requests
 
 # ===== DEBUGGING CONTROL =====
 DEBUG_LEVEL = "INFO"  # "OFF", "INFO", "DEBUG", "TRACE"
