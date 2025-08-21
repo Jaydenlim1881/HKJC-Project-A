@@ -64,19 +64,76 @@ from _horse_dynamic_stats_cleaned import (
     create_horse_rating_table,
     upsert_horse_rating
 )
-from _horse_dynamic_stats_cleaned import create_running_style_pref_table, migrate_turncount_to_real
+from _horse_dynamic_stats_cleaned import create_running_style_pref_table, migrate_turncount_to_real, create_race_field_size_table
 
 # -----------------------------
 # DYNAMIC STATS UPSERT (LOCAL)
 # -----------------------------
-def reset_draw_pref_table():
-    time.sleep(1)  # <-- short pause before drop
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS horse_draw_pref")
-    conn.commit()
-    conn.close()
-    log("INFO", "Dropped old horse_draw_pref table")
+def get_race_field_size(race_date_str, race_no, race_course):
+    """Derive field size for a race.
+
+    Attempts to look up the value from the ``race_field_size`` cache table
+    first.  If not present, it will scrape the HKJC race result page to count
+    the number of runners and cache the result for future use.
+    """
+
+    # Ensure the cache table exists
+    create_race_field_size_table()
+
+    # 1) Try the local cache
+    try:
+        conn = sqlite3.connect("hkjc_horses_dynamic.db")
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT FieldSize FROM race_field_size WHERE RaceDate=? AND RaceNo=? AND RaceCourse=?",
+            (race_date_str, str(race_no), race_course),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return int(row[0])
+    except Exception as e:
+        log("DEBUG", f"Field size DB lookup failed: {e}")
+
+    # 2) Fallback to scraping the race result page
+    try:
+        url = (
+            "https://racing.hkjc.com/racing/information/English/racing/"
+            f"LocalResults.aspx?RaceDate={race_date_str}&Racecourse={race_course}&RaceNo={race_no}"
+        )
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        dammit = UnicodeDammit(resp.content, ["utf-8", "big5", "latin-1"])
+        soup = BeautifulSoup(dammit.unicode_markup, "html.parser")
+
+        table = soup.find("table", class_="bigborder")
+        if not table:
+            for t in soup.find_all("table"):
+                header = t.find("tr")
+                if header and "Horse" in header.get_text():
+                    table = t
+                    break
+
+        if table:
+            rows = [r for r in table.find_all("tr") if r.find_all("td")]
+            field_size = len(rows) - 1  # exclude header
+            if field_size > 0:
+                try:
+                    conn = sqlite3.connect("hkjc_horses_dynamic.db")
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT OR REPLACE INTO race_field_size (RaceDate, RaceNo, RaceCourse, FieldSize) VALUES (?, ?, ?, ?)",
+                        (race_date_str, str(race_no), race_course, field_size),
+                    )
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    log("DEBUG", f"Failed to cache field size: {e}")
+                return field_size
+    except Exception as e:
+        log("DEBUG", f"Field size scrape failed: {e}")
+
+    return None
 
 def create_going_pref_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
@@ -462,9 +519,9 @@ def extract_dynamic_stats(horse_url):
                 # -- Season
                 race_date = datetime.strptime(race_date_str, "%Y/%m/%d")
                 season = f"{race_date.year%100:02d}/{(race_date.year+1)%100:02d}" if race_date.month >= 9 else f"{(race_date.year-1)%100:02d}/{race_date.year%100:02d}"
-
-                # No guess; leave empty so DB can preserve existing or CSV can fill
-                field_size = None
+                
+                # Derive field size for this race
+                field_size = get_race_field_size(race_date_str, race_no, race_course)
 
                 # -- Build data dict
                 race_date_obj = datetime.strptime(race_date_str, "%Y/%m/%d")
@@ -538,15 +595,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[ERROR] Backfill failed: {e}")
     
-    # 0. TEMPORARY TABLE RESET (DEBUG ONLY) - REMOVE AFTER FIXING
-    log("DEBUG", "Resetting horse_weight_pref table...")
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    conn.execute("DROP TABLE IF EXISTS horse_weight_pref")
-    conn.commit()
-    conn.close()
-    create_weight_pref_table()
-    log("DEBUG", "Reset complete - fresh table created\n")
-    
     # 1. First create all basic tables
     create_going_pref_table()
     create_trainer_combo_table()
@@ -557,8 +605,8 @@ if __name__ == "__main__":
     create_jockey_trainer_combo_table()  # Then ensure proper table structure
 
     # 3. Handle draw preferences
-    reset_draw_pref_table()  # 🧼 Drop and clean old table
     create_draw_pref_table()  # ✅ Ensure table exists
+    ensure_column_exists("hkjc_horses_dynamic.db", "horse_draw_pref", "ID", "INTEGER")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_draw_pref", "RaceCourse", "TEXT")
     ensure_column_exists("hkjc_horses_dynamic.db", "horse_draw_pref", "LastUpdate", "TIMESTAMP")
 
@@ -860,6 +908,10 @@ if __name__ == "__main__":
                 try:
                     draw_pref_dict = build_draw_pref(horse_data["RawRows"])
                     upsert_draw_pref(horse_data["HorseID"], draw_pref_dict)
+                    if DEBUG_LEVEL in ("DEBUG", "TRACE"):
+                        from _horse_dynamic_stats_cleaned import fetch_draw_pref_ordered
+                        ordered = fetch_draw_pref_ordered(horse_data["HorseID"])
+                        log("DEBUG", f"DrawPref (newest first) for {horse_data['HorseID']}: {ordered[:3]}")
                 except Exception as e:
                     log("ERROR", f"Failed to update draw pref for {horse_data['HorseID']}: {e}")
 

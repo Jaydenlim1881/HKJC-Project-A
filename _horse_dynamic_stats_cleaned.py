@@ -4,7 +4,6 @@
 import sys
 sys.path.append('/Users/calvinlim13/miniforge3/lib/python3.12/site-packages')
 
-import time
 from utils import (
     log, sanitize_text, clean_placing, convert_finish_time,
     safe_int, safe_float, parse_weight, parse_lbw,
@@ -1150,6 +1149,7 @@ def create_draw_pref_table():
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS horse_draw_pref (
+            ID INTEGER PRIMARY KEY AUTOINCREMENT,
             HorseID TEXT,
             Season TEXT,
             RaceCourse TEXT,
@@ -1164,15 +1164,6 @@ def create_draw_pref_table():
     ''')
     conn.commit()
     conn.close()
-
-def reset_draw_pref_table():
-    time.sleep(1)
-    conn = sqlite3.connect("hkjc_horses_dynamic.db")
-    cursor = conn.cursor()
-    cursor.execute("DROP TABLE IF EXISTS horse_draw_pref")
-    conn.commit()
-    conn.close()
-    log("INFO", "Dropped old horse_draw_pref table")
 
 def create_going_pref_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
@@ -1196,10 +1187,6 @@ def create_weight_pref_table():
     conn = sqlite3.connect("hkjc_horses_dynamic.db")
     cursor = conn.cursor()
 
-    # Optional: drop old table if it still exists with old schema
-    cursor.execute("DROP TABLE IF EXISTS horse_weight_pref")
-
-    # ✅ New schema with DistanceGroup
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS horse_weight_pref (
             HorseID TEXT,
@@ -1210,8 +1197,7 @@ def create_weight_pref_table():
             Top3Rate REAL,
             Top3Count INTEGER,
             TotalRuns INTEGER,
-            LastUpdate TEXT,
-            PRIMARY KEY (HorseID, Season, DistanceGroup, WeightGroup)
+            LastUpdate TEXT
         )
     """)
     conn.commit()
@@ -1342,12 +1328,6 @@ def upsert_weight_pref(horse_id, weight_pref_list):
                     HorseID, Season, DistanceGroup, WeightGroup, CarriedWeight,
                     Top3Rate, Top3Count, TotalRuns, LastUpdate
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(HorseID, Season, DistanceGroup, WeightGroup) DO UPDATE SET
-                    CarriedWeight=excluded.CarriedWeight,
-                    Top3Rate=excluded.Top3Rate,
-                    Top3Count=excluded.Top3Count,
-                    TotalRuns=excluded.TotalRuns,
-                    LastUpdate=excluded.LastUpdate
             """, (
                 horse_id,
                 str(row['Season']),
@@ -1472,22 +1452,26 @@ def upsert_draw_pref(horse_id, draw_pref_dict):
             if total < 3:
                 rate /= 2
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO horse_draw_pref (
                     HorseID, Season, RaceCourse, DistanceGroup, DrawGroup,
                     Top3Rate, Top3Count, TotalRuns, LastUpdate
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(HorseID, Season, RaceCourse, DistanceGroup, DrawGroup)
-                DO UPDATE SET
-                    Top3Rate = excluded.Top3Rate,
-                    Top3Count = excluded.Top3Count,
-                    TotalRuns = excluded.TotalRuns,
-                    LastUpdate = excluded.LastUpdate;
-            """, (
-                horse_id, season, race_course, distance_group, draw_group,
-                rate, top3, total, last_update
-            ))
+                """,
+                (
+                    horse_id,
+                    season,
+                    race_course,
+                    distance_group,
+                    draw_group,
+                    rate,
+                    top3,
+                    total,
+                    last_update,
+                ),
+            )
 
     conn.commit()
     conn.close()
@@ -1959,6 +1943,24 @@ def fetch_running_style_pref_ordered(horse_id):
     conn.close()
     return rows
     
+def fetch_draw_pref_ordered(horse_id):
+    """Fetch draw preference rows for a horse ordered by most recent update."""
+    conn = sqlite3.connect("hkjc_horses_dynamic.db")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT HorseID, Season, RaceCourse, DistanceGroup, DrawGroup,
+               Top3Rate, Top3Count, TotalRuns, LastUpdate
+        FROM horse_draw_pref
+        WHERE HorseID = ?
+        ORDER BY datetime(LastUpdate) DESC
+        """,
+        (horse_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 def rebuild_running_style_pref(horse_id: str | None = None) -> tuple[int, int]:
     """
     Aggregate per-race running positions into style preference rows.
